@@ -181,6 +181,42 @@ export function AgentSessionView_01({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
 
+  const [conversationId] = useState(() => `conv_${Date.now()}`);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      const stored = localStorage.getItem('aarogyam_conversations');
+      const conversations = stored ? JSON.parse(stored) : [];
+      
+      const updatedMessages = messages.map((msg) => ({
+        id: msg.id,
+        sender: msg.from?.isLocal ? 'user' : ('assistant' as const),
+        text: msg.message,
+        timestamp: msg.timestamp,
+      }));
+
+      // Find first user message for summary/title
+      const firstUserMsg = updatedMessages.find((m) => m.sender === 'user')?.text || 'Voice Consultation';
+      const summary = firstUserMsg.length > 30 ? `${firstUserMsg.substring(0, 30)}...` : firstUserMsg;
+
+      const conversationItem = {
+        id: conversationId,
+        date: new Date().toLocaleDateString(),
+        timestamp: Date.now(),
+        messages: updatedMessages,
+        summary,
+      };
+
+      const existingIndex = conversations.findIndex((c: any) => c.id === conversationId);
+      if (existingIndex > -1) {
+        conversations[existingIndex] = conversationItem;
+      } else {
+        conversations.unshift(conversationItem);
+      }
+      localStorage.setItem('aarogyam_conversations', JSON.stringify(conversations));
+    }
+  }, [messages, conversationId]);
+
   const controls: AgentControlBarControls = {
     leave: true,
     microphone: true,
@@ -204,6 +240,25 @@ export function AgentSessionView_01({
       className={cn('bg-background relative z-10 h-full w-full overflow-hidden', className)}
       {...props}
     >
+      {/* Floating Status Bar */}
+      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full border border-slate-200/50 bg-white/80 px-4 py-2 text-sm font-semibold shadow-md backdrop-blur-md dark:border-slate-800/50 dark:bg-slate-950/80">
+        <span className={cn('h-2.5 w-2.5 rounded-full animate-pulse', 
+          agentState === 'listening' && 'bg-emerald-500',
+          agentState === 'thinking' && 'bg-amber-500',
+          agentState === 'speaking' && 'bg-blue-500',
+          (agentState === 'failed' || !session.isConnected) && 'bg-red-500',
+          agentState !== 'listening' && agentState !== 'thinking' && agentState !== 'speaking' && agentState !== 'failed' && session.isConnected && 'bg-slate-400'
+        )} />
+        <span className="text-slate-800 dark:text-slate-200 uppercase tracking-wider text-xs font-semibold">
+          {agentState === 'listening' && 'Listening'}
+          {agentState === 'thinking' && 'Thinking'}
+          {agentState === 'speaking' && 'Speaking'}
+          {agentState === 'failed' && 'Connection Failed'}
+          {agentState === 'disconnected' && 'Disconnected'}
+          {agentState !== 'listening' && agentState !== 'thinking' && agentState !== 'speaking' && agentState !== 'failed' && agentState !== 'disconnected' && (session.isConnected ? 'Connected' : 'Disconnected')}
+        </span>
+      </div>
+
       <Fade top className="absolute inset-x-4 top-0 z-10 h-40" />
       {/* transcript */}
 

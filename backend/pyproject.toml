@@ -13,6 +13,11 @@ dependencies = [
     "livekit-murf>=0.1.1",
     "livekit-plugins-noise-cancellation~=0.2",
     "python-dotenv",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "PyJWT>=2.8.0",
+    "bcrypt>=4.1.0",
+    "email-validator>=2.0.0",
 ]
 
 [dependency-groups]

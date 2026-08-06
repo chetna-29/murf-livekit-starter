@@ -118,7 +118,18 @@
   * {
     @apply border-foreground/20 outline-ring/50;
   }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  ::selection {
+    background: rgba(16, 185, 129, 0.25);
+    color: #0f172a;
   }
 }

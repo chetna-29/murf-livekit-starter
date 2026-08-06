@@ -1,4 +1,6 @@
 import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
+import { ConnectionState } from 'livekit-client';
 
 function WelcomeImage() {
   return (
@@ -21,13 +23,19 @@ function WelcomeImage() {
 interface WelcomeViewProps {
   startButtonText: string;
   onStartCall: () => void;
+  connectionState?: ConnectionState;
+  error?: Error | null;
 }
 
 export const WelcomeView = ({
   startButtonText,
   onStartCall,
+  connectionState,
+  error,
   ref,
 }: React.ComponentProps<'div'> & WelcomeViewProps) => {
+  const isConnecting = connectionState === 'connecting';
+
   return (
     <div ref={ref}>
       <section className="bg-background flex flex-col items-center justify-center text-center">
@@ -37,12 +45,26 @@ export const WelcomeView = ({
           Chat live with your voice AI agent
         </p>
 
+        {error && (
+          <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 text-red-200 text-xs rounded-xl max-w-xs mx-auto">
+            Connection failed: {error.message || 'Check connection details and try again.'}
+          </div>
+        )}
+
         <Button
           size="lg"
           onClick={onStartCall}
-          className="mt-6 w-64 rounded-full font-mono text-xs font-bold tracking-wider uppercase"
+          disabled={isConnecting}
+          className="mt-6 w-64 rounded-full font-mono text-xs font-bold tracking-wider uppercase flex items-center justify-center gap-2"
         >
-          {startButtonText}
+          {isConnecting ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Connecting...
+            </>
+          ) : (
+            startButtonText
+          )}
         </Button>
       </section>
 
