@@ -26,7 +26,7 @@ import {
 import { APP_CONFIG_DEFAULTS } from '@/app-config';
 import { getSandboxTokenSource } from '@/lib/utils';
 import { RoomAudioRenderer } from '@livekit/components-react';
-import { useLanguage } from '@/components/app/providers';
+import { useLanguage, useAuth } from '@/components/app/providers';
 
 interface AarogyamVoiceOverlayProps {
   onClose: () => void;
@@ -110,6 +110,7 @@ function InnerVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
   const { state: agentState } = useAgent();
   const { messages } = useSessionMessages(session);
   const { language } = useLanguage();
+  const { user } = useAuth();
   const { localParticipant } = useLocalParticipant();
   const isUserSpeaking = useIsSpeaking(localParticipant);
 
@@ -220,7 +221,8 @@ function InnerVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
 
   useEffect(() => {
     if (messages.length > 0) {
-      const stored = localStorage.getItem('aarogyam_conversations');
+      const key = user ? `aarogyam_conversations_${user.email.trim().toLowerCase()}` : 'aarogyam_conversations';
+      const stored = localStorage.getItem(key);
       const conversations = stored ? JSON.parse(stored) : [];
 
       const updatedMessages = messages.map((msg) => ({
@@ -247,9 +249,9 @@ function InnerVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
       } else {
         conversations.unshift(conversationItem);
       }
-      localStorage.setItem('aarogyam_conversations', JSON.stringify(conversations));
+      localStorage.setItem(key, JSON.stringify(conversations));
     }
-  }, [messages, conversationId]);
+  }, [messages, conversationId, user]);
 
   // Auto-scroll chat transcripts
   useEffect(() => {
@@ -820,9 +822,28 @@ function InnerVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
 
 export function AarogyamVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
   const tokenSource = useMemo(() => {
-    return typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string'
-      ? getSandboxTokenSource(APP_CONFIG_DEFAULTS)
-      : TokenSource.endpoint('/api/token');
+    if (typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string') {
+      return getSandboxTokenSource(APP_CONFIG_DEFAULTS);
+    }
+    return TokenSource.custom(async () => {
+      const storedUser = localStorage.getItem('aarogyam_user');
+      const userObj = storedUser ? JSON.parse(storedUser) : null;
+
+      const res = await fetch('/api/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userObj?.email || `anonymous_${Math.floor(Math.random() * 10000)}`,
+          userName: userObj?.name || 'Guest',
+        }),
+      });
+      if (!res.ok) {
+        throw new Error('Failed to fetch connection details');
+      }
+      return await res.json();
+    });
   }, []);
 
   const session = useSession(

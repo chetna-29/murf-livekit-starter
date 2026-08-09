@@ -59,23 +59,33 @@ function DashboardContent() {
   }, [searchParams, router]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('aarogyam_conversations');
-      if (stored) {
-        try {
-          setConversations(JSON.parse(stored));
-        } catch (e) {
-          console.error('Failed to parse conversations', e);
+    if (typeof window !== 'undefined' && !isLoading) {
+      if (user) {
+        const key = `aarogyam_conversations_${user.email.trim().toLowerCase()}`;
+        const stored = localStorage.getItem(key);
+        if (stored) {
+          try {
+            setConversations(JSON.parse(stored));
+          } catch (e) {
+            console.error('Failed to parse conversations', e);
+          }
+        } else {
+          setConversations([]);
         }
+      } else {
+        setConversations([]);
       }
     }
-  }, []);
+  }, [user, isLoading]);
 
   const handleDeleteConversation = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const updated = conversations.filter((c) => c.id !== id);
     setConversations(updated);
-    localStorage.setItem('aarogyam_conversations', JSON.stringify(updated));
+    if (user) {
+      const key = `aarogyam_conversations_${user.email.trim().toLowerCase()}`;
+      localStorage.setItem(key, JSON.stringify(updated));
+    }
     if (selectedConversation?.id === id) {
       setSelectedConversation(null);
     }
@@ -365,13 +375,20 @@ function DashboardContent() {
           onClose={() => {
             setIsVoiceOpen(false);
             // Refresh conversation history
-            const stored = localStorage.getItem('aarogyam_conversations');
-            if (stored) {
-              try {
-                setConversations(JSON.parse(stored));
-              } catch (e) {
-                console.error(e);
+            if (user) {
+              const key = `aarogyam_conversations_${user.email.trim().toLowerCase()}`;
+              const stored = localStorage.getItem(key);
+              if (stored) {
+                try {
+                  setConversations(JSON.parse(stored));
+                } catch (e) {
+                  console.error(e);
+                }
+              } else {
+                setConversations([]);
               }
+            } else {
+              setConversations([]);
             }
           }}
         />
