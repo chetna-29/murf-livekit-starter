@@ -1,6 +1,11 @@
 import logging
 import asyncio
 import random
+import urllib.request
+import urllib.parse
+import json
+import math
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -16,6 +21,7 @@ from livekit.agents import (
     room_io,
     function_tool,
     RunContext,
+    UserInputTranscribedEvent,
 )
 try:
     from services.memory_service import MemoryService
@@ -28,28 +34,93 @@ logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
 
-# Aarogyam AI Voice Agent Persona System Prompt
-SYSTEM_PROMPT = (
-    "You are Aarogyam, an AI Health & Wellness Voice Assistant. You are NOT a doctor and never claim to replace one.\n"
-    "Language Mirroring: Detect language/mix of the last message independently and match it exactly (Hindi->Hindi, English->English, Hinglish->Hinglish, Mixed->mirror mix). Never ask preferences.\n"
-    "Examples:\n"
-    "- User: 'Mujhe headache hai since yesterday.' -> Reply: 'Samajh gaya. Aapko kal se headache hai. Kya headache continuous hai ya kabhi-kabhi ho raha hai?'\n"
-    "- User: 'I have fever but body pain bhi ho raha hai.' -> Reply: 'I understand. Aapko fever ke saath body pain bhi ho raha hai. Have you checked your temperature?'\n"
-    "Flow Rules:\n"
-    "1. General: Acknowledge query warmly -> Provide safe wellness advice -> Ask ONE follow-up question.\n"
-    "2. Refusals (medicine name/prescriptions/dosages/diagnoses/medical certificates): Refuse politely -> Explain why (AI assistant, not doctor) -> Offer safe alternative (consult doctor, share wellness tips).\n"
-    "3. Emergencies (chest/arm pain, breathing difficulty, stroke, infant high fever, self-harm, etc.): Acknowledge with empathy -> State exactly: 'Your symptoms may require immediate medical attention. Please contact your nearest hospital, emergency medical service, or a qualified doctor immediately.' -> Give calm guidance (stay calm, rest, get family support, do not exert).\n"
-    "MEMORY & CONSENT:\n"
-    "- You must call the `lookup_caller` tool at the start of the conversation to retrieve any existing profile/memory.\n"
-    "- When you learn new information (e.g. name, language preference, wellness facts like step goals, sleep habits, exercise choice, diet preference), you MUST NOT call the `save_caller_info` tool immediately in the same turn. You are strictly forbidden from doing so.\n"
-    "- Instead, you must first verbally ask the user for permission in your response (e.g., 'Kya main aapki preferred language aur step goal save kar sakta hoon?').\n"
-    "- Wait for the user's next turn. If the user explicitly grants positive consent (e.g., 'Yes', 'Haan', 'Save it'), you may then invoke the `save_caller_info` tool with `consent_granted=True` in that turn. If they say no, confirm you will not save the info and do NOT call the tool.\n"
-    "- If the response is negative, ambiguous, or absent, do NOT call the tool and do NOT save.\n"
-    "- Never infer consent from the information itself. Never treat silence as consent. Never save health information without consent.\n"
-    "- Keep memory limited to name, language preference, last interaction, and limited triage outcome/wellness facts explicitly approved. Do NOT store sensitive medical notes, clinical conditions, or prescriptions.\n"
-    "Style: Max 2-3 short sentences. NEVER use markdown (no * or **, lists, or bullet points). Use simple conversational language without medical jargon.\n"
-    "First Response: Do NOT greet or introduce yourself. A greeting was already spoken. Start directly by acknowledging their query."
-)
+def get_system_prompt(lang: str, is_guest: bool = False) -> str:
+    # Build language-specific constraints and prompt structures
+    if lang == "English":
+        lang_instruction = "Language: You MUST respond and speak ENTIRELY in English. Do NOT use any Hindi, Hinglish, or Devanagari words under any circumstances."
+        examples = (
+            "Examples:\n"
+            "- User: 'I have headache since yesterday.' -> Reply: 'I understand you have had a headache since yesterday. Is the pain continuous or does it come and go?'\n"
+            "- User: 'I have fever and body pain.' -> Reply: 'I see. You have a fever along with body pain. Have you checked your temperature?'"
+        )
+        consent_example = "'Can I save your preferred language and step goal?'"
+        lookup_unclear_prompt = "'I heard Ponda, Goa. Is that what you meant?' or 'Did you mean Dehradun?'"
+        no_location_prompt = "'Which city, area, or district should I search?'"
+        failure_prompt = "'I\\'m unable to access the healthcare facility data right now. Please try again shortly.'"
+    elif lang == "Hindi":
+        lang_instruction = "Language: You MUST respond and speak ENTIRELY in Hindi using Devanagari script. Do NOT use English or Hinglish words."
+        examples = (
+            "Examples:\n"
+            "- User: 'मुझे कल से सिरदर्द है।' -> Reply: 'समझ गया। आपको कल से सिरदर्द है। क्या सिरदर्द लगातार हो रहा है या कभी-कभी?'\n"
+            "- User: 'मुझे बुखार और शरीर में दर्द है।' -> Reply: 'मैं समझ सकता हूँ। आपको बुखार के साथ शरीर में दर्द भी है। क्या आपने अपना तापमान चेक किया है?'"
+        )
+        consent_example = "'क्या मैं आपकी पसंदीदा भाषा और स्टेप गोल सेव कर सकती हूँ?'"
+        lookup_unclear_prompt = "'मैंने पोंडा, गोवा सुना। क्या आपका यही मतलब था?' या 'क्या आपका मतलब देहरादून था?'"
+        no_location_prompt = "'आप किस शहर, क्षेत्र या जिले में खोजना चाहते हैं?'"
+        failure_prompt = "'मैं इस समय स्वास्थ्य केंद्र की जानकारी नहीं देख पा रही हूँ। कृपया कुछ समय बाद फिर से प्रयास करें।'"
+    else:  # Hinglish
+        lang_instruction = "Language: You MUST respond and speak in Hinglish (a natural mix of Hindi and English written in Latin script)."
+        examples = (
+            "Examples:\n"
+            "- User: 'Mujhe headache hai since yesterday.' -> Reply: 'Samajh gaya. Aapko kal se headache hai. Kya headache continuous hai ya kabhi-kabhi ho raha hai?'\n"
+            "- User: 'I have fever but body pain bhi ho raha hai.' -> Reply: 'I understand. Aapko fever ke saath body pain bhi ho raha hai. Have you checked your temperature?'"
+        )
+        consent_example = "'Kya main aapki preferred language aur step goal save kar sakta hoon?'"
+        lookup_unclear_prompt = "'Mujhe Ponda, Goa sunai diya. Kya aapka wahi matlab tha?' or 'Kya aapka matlab Dehradun tha?'"
+        no_location_prompt = "'Aap kis city, area, ya district mein search karna chahte hain?'"
+        failure_prompt = "'Main abhi healthcare facilities ki details nahi dekh paa rahi hoon. Please thodi der baad try karein.'"
+
+    if is_guest:
+        memory_instruction = "- Since this is a guest session, do NOT call the `lookup_caller` tool.\n"
+    else:
+        memory_instruction = "- You must call the `lookup_caller` tool at the start of the conversation to retrieve any existing profile/memory.\n"
+
+    prompt = (
+        f"You are Aarogyam, an AI Health & Wellness Voice Assistant. You are NOT a doctor and never claim to replace one.\n"
+        f"{lang_instruction}\n"
+        f"{examples}\n"
+        f"Flow Rules:\n"
+        f"1. General: Acknowledge query warmly -> Provide safe wellness advice -> Ask ONE follow-up question.\n"
+        f"2. Refusals (medicine name/prescriptions/dosages/diagnoses/medical certificates): Refuse politely -> Explain why (AI assistant, not doctor) -> Offer safe alternative (consult doctor, share wellness tips).\n"
+        f"3. Emergencies (chest/arm pain, breathing difficulty, stroke, infant high fever, self-harm, etc.): Acknowledge with empathy -> State exactly: 'Your symptoms may require immediate medical attention. Please contact your nearest hospital, emergency medical service, or a qualified doctor immediately.' -> Give calm guidance (stay calm, rest, get family support, do not exert).\n"
+        f"MEMORY & CONSENT:\n"
+        f"{memory_instruction}"
+        f"- When you learn new information (e.g. name, language preference, wellness facts like step goals, sleep habits, exercise choice, diet preference, or their general location/district), you MUST NOT call the `save_caller_info` tool immediately in the same turn. You are strictly forbidden from doing so.\n"
+        f"- Instead, you must first verbally ask the user for permission in your response (e.g., {consent_example} or 'Would you like me to remember that you live in [Location] so I can use it for healthcare searches later?').\n"
+        f"- Wait for the user's next turn. If the user explicitly grants positive consent (e.g., 'Yes', 'Haan', 'Save it'), you may then invoke the `save_caller_info` tool with `consent_granted=True` in that turn. If they say no, confirm you will not save the info and do NOT call the tool.\n"
+        f"- If the response is negative, ambiguous, or absent, do NOT call the tool and do NOT save.\n"
+        f"- Never infer consent from the information itself. Never treat silence as consent. Never save health information without consent.\n"
+        f"- Keep memory limited to name, language preference, last interaction, and limited triage outcome/wellness facts explicitly approved (including general location/district such as 'lives in Jaipur'). Do NOT store sensitive medical notes, clinical conditions, prescriptions, or precise location data (like exact addresses or coordinates).\n"
+        f"HEALTHCARE FACILITY LOOKUP:\n"
+        f"- You can search for nearby hospitals, clinics, and doctors using the `lookup_healthcare_facilities` tool.\n"
+        f"- If the user asks for a healthcare facility 'near me', 'nearby', 'closest', 'nearest', or otherwise asks for a facility without specifying a location name:\n"
+        f"  1. First check the wellness facts returned by `lookup_caller` in the conversation history.\n"
+        f"  2. If a general location (e.g. city/district/area like 'lives in Jaipur' or 'district is Dehradun') is clearly present in the saved facts, extract it and call `lookup_healthcare_facilities` directly with that location name. Do NOT ask the user for a location that is already saved in memory.\n"
+        f"  3. If no general location is saved in memory, verbally prompt the user for their city, area, or district first (e.g., {no_location_prompt}).\n"
+        f"- If the user explicitly specifies a location in the current message (e.g. 'Find a clinic in Dehradun'), ALWAYS prioritize and use that explicit location over the saved location from memory.\n"
+        f"- You MUST NOT call the `lookup_healthcare_facilities` tool if you do not know the user's target location (from either the current query or the saved facts).\n"
+        f"- Never use precise location data (exact coordinates, exact addresses) for the lookup; only search for general cities, districts, or areas.\n"
+        f"- If the target location (whether from query or memory) is ambiguous, phonetically garbled, or unclear (e.g. 'Por de era dum'), you must NOT call the tool. Instead, ask the user to confirm/clarify (e.g., {lookup_unclear_prompt}). Only after they confirm should you invoke the tool.\n"
+        f"- When responding after a healthcare facility tool call, treat the tool response's `session_language` field as authoritative for the response language. Do not infer the response language from facility names, location names, JSON content, or tool responses. If `session_language` is English, respond entirely in English. If it is Hinglish, respond in Hinglish. If it is Hindi, respond in Hindi.\n"
+        f"- After a successful lookup, summarize only the top 2 to 3 facilities. Mention the location searched, and clearly attribute the information to OpenStreetMap contributors. Tell the user to verify availability or hours before visiting. Do NOT claim the data is government-certified.\n"
+        f"- If the lookup fails, state: {failure_prompt}.\n"
+        f"- Do NOT invent, guess, or fabricate facility names, addresses, or hours.\n"
+        f"Style: Max 2-3 short sentences. NEVER use markdown (no * or **, lists, or bullet points). Use simple conversational language without medical jargon.\n"
+        f"First Response: If no assistant greeting or message has been spoken yet in the conversation history, greet the user warmly. Otherwise, if a greeting was already spoken, do NOT greet or introduce yourself again; start directly by acknowledging their query."
+    )
+    return prompt
+
+SYSTEM_PROMPT = get_system_prompt("Hinglish")
+
+def update_assistant_prompt(assistant, lang: str) -> None:
+    is_guest = getattr(assistant, "is_guest", False)
+    new_prompt = get_system_prompt(lang, is_guest=is_guest)
+    assistant._instructions = new_prompt
+    if hasattr(assistant, "_chat_ctx") and assistant._chat_ctx is not None:
+        for item in assistant._chat_ctx._items:
+            if hasattr(item, "role") and item.role == "system":
+                item.content = new_prompt
+
 
 def detect_language(text: str) -> str:
     if not text:
@@ -105,12 +176,143 @@ GREETINGS = [
 ]
 
 
+def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the great-circle distance between two points in kilometers."""
+    R = 6371.0  # Earth's radius in km
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
+def _geocode_location(location: str) -> tuple[float, float, str] | None:
+    """Geocode a location in India using OSM Nominatim API.
+    Returns (lat, lon, display_name) or None.
+    """
+    params = {
+        "q": location,
+        "format": "json",
+        "limit": 1,
+        "countrycodes": "in"
+    }
+    url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(params)
+    
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "AarogyamHealthAccessAgent/1.0 (contact: support@aarogyam.ai)"
+        }
+    )
+    
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status != 200:
+                logger.error(f"Nominatim API returned HTTP {response.status}")
+                return None
+            data = json.loads(response.read().decode("utf-8"))
+            if not data:
+                logger.warning(f"Nominatim returned empty results for location: {location}")
+                return None
+            
+            first = data[0]
+            lat = float(first["lat"])
+            lon = float(first["lon"])
+            display_name = first.get("display_name", location)
+            return lat, lon, display_name
+    except Exception as e:
+        logger.error(f"Failed to geocode location '{location}': {e}")
+        return None
+
+
+def _fetch_nearby_facilities(lat: float, lon: float) -> list[dict]:
+    """Fetch hospitals, clinics, and doctors within 5km of (lat, lon) using Overpass API.
+    Returns sorted list by distance.
+    """
+    query = f"""[out:json][timeout:15];
+(
+  nwr["amenity"="hospital"](around:5000,{lat},{lon});
+  nwr["amenity"="clinic"](around:5000,{lat},{lon});
+  nwr["amenity"="doctors"](around:5000,{lat},{lon});
+);
+out body;"""
+    
+    url = "https://overpass-api.de/api/interpreter"
+    req_data = urllib.parse.urlencode({"data": query}).encode("utf-8")
+    
+    req = urllib.request.Request(
+        url,
+        data=req_data,
+        headers={
+            "User-Agent": "AarogyamHealthAccessAgent/1.0 (contact: support@aarogyam.ai)",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+    )
+    
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            if response.status != 200:
+                logger.error(f"Overpass API returned HTTP {response.status}")
+                return []
+            
+            data = json.loads(response.read().decode("utf-8"))
+            elements = data.get("elements", [])
+            facilities = []
+            
+            for elem in elements:
+                tags = elem.get("tags", {})
+                name = tags.get("name")
+                if not name:
+                    continue
+                
+                elem_lat = elem.get("lat")
+                elem_lon = elem.get("lon")
+                
+                if elem_lat is None or elem_lon is None:
+                    center = elem.get("center", {})
+                    elem_lat = center.get("lat")
+                    elem_lon = center.get("lon")
+                
+                if elem_lat is None or elem_lon is None:
+                    continue
+                
+                dist = _haversine_distance(lat, lon, elem_lat, elem_lon)
+                
+                addr_parts = []
+                for tag_name in ["addr:street", "addr:suburb", "addr:city", "addr:postcode"]:
+                    val = tags.get(tag_name)
+                    if val:
+                        addr_parts.append(val)
+                address = ", ".join(addr_parts) if addr_parts else "Location details not available"
+                
+                facilities.append({
+                    "name": name,
+                    "type": tags.get("amenity", "healthcare_facility").replace("_", " ").title(),
+                    "address": address,
+                    "distance_km": round(dist, 2),
+                    "lat": elem_lat,
+                    "lon": elem_lon
+                })
+            
+            facilities.sort(key=lambda x: x["distance_km"])
+            return facilities
+    except Exception as e:
+        logger.error(f"Failed to fetch nearby facilities from Overpass: {e}")
+        return []
+
+
 class Assistant(Agent):
-    def __init__(self, user_id: str, user_name: str, is_guest: bool = False) -> None:
+    def __init__(self, user_id: str = "guest_session", user_name: str = "Guest", is_guest: bool = True) -> None:
         self.user_id = user_id
         self.user_name = user_name
         self.is_guest = is_guest
-        super().__init__(instructions=SYSTEM_PROMPT)
+        self.current_lang = "Hinglish"
+        super().__init__(instructions=get_system_prompt("Hinglish", is_guest=is_guest))
 
     @function_tool
     async def lookup_caller(self, context: RunContext) -> str:
@@ -176,6 +378,77 @@ class Assistant(Agent):
         except Exception as e:
             logger.error(f"Error saving caller info: {e}")
             return "Error: Failed to save caller information."
+
+    @function_tool
+    async def lookup_healthcare_facilities(
+        self,
+        context: RunContext,
+        location: str,
+    ) -> str:
+        """Look up nearby healthcare facilities (hospitals, clinics, and doctors) for a specified Indian location.
+
+        Use this tool when:
+        - The user asks for nearby hospitals, clinics, doctors, primary health centres (PHCs), or health centres.
+        - A specific Indian location (city, area, or district) is provided by the user or is available in caller history.
+
+        Do NOT use this tool:
+        - For medical diagnosis, prescribing medications, or giving treatment advice.
+        - When the user has not provided a specific location name and none exists in memory (ask for the location verbally instead).
+        - To fabricate or guess healthcare facility availability.
+
+        Args:
+            location: The name of the city, district, neighborhood, or area in India to search in.
+        """
+        logger.info(f"Looking up healthcare facilities for location: {location}")
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        session_lang = getattr(self, "current_lang", "Hinglish")
+        
+        # 1. Geocode the location
+        geocoded = await asyncio.to_thread(_geocode_location, location)
+        if not geocoded:
+            result = {
+                "status": "failed",
+                "reason": f"Could not geocode or locate '{location}' in India.",
+                "fetched_at": fetched_at,
+                "session_language": session_lang,
+                "source": "OpenStreetMap contributors"
+            }
+            return json.dumps(result, ensure_ascii=False)
+        
+        lat, lon, display_name = geocoded
+        logger.info(f"Resolved '{location}' to ({lat}, {lon}) - '{display_name}'")
+        
+        # 2. Fetch nearby facilities (hospital, clinic, doctors) within 5km radius
+        facilities = await asyncio.to_thread(_fetch_nearby_facilities, lat, lon)
+        
+        # Limit to top 2-3 facilities
+        top_facilities = facilities[:3]
+        
+        # If no facilities found
+        if not top_facilities:
+            result = {
+                "status": "failed",
+                "reason": f"No healthcare facilities found within 5km of '{display_name}'.",
+                "fetched_at": fetched_at,
+                "session_language": session_lang,
+                "source": "OpenStreetMap contributors"
+            }
+            return json.dumps(result, ensure_ascii=False)
+        
+        # Return success with facilities
+        result = {
+            "status": "success",
+            "location": display_name,
+            "coordinates": {
+                "lat": lat,
+                "lon": lon
+            },
+            "facilities": top_facilities,
+            "fetched_at": fetched_at,
+            "session_language": session_lang,
+            "source": "OpenStreetMap contributors"
+        }
+        return json.dumps(result, ensure_ascii=False)
 
 
 server = AgentServer()
@@ -282,9 +555,10 @@ async def my_agent(ctx: JobContext):
         user_name = "Guest"
         is_guest = True
 
+    assistant = Assistant(user_id=user_id, user_name=user_name, is_guest=is_guest)
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
-        agent=Assistant(user_id=user_id, user_name=user_name, is_guest=is_guest),
+        agent=assistant,
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
@@ -324,6 +598,11 @@ async def my_agent(ctx: JobContext):
         greeting = random.choice(GREETINGS)
         logger.info("Greeting new caller with random default greeting.")
 
+    assistant.current_lang = current_session_lang
+    # Update assistant instructions synchronously first to avoid race conditions
+    update_assistant_prompt(assistant, current_session_lang)
+    # Also update asynchronously via the SDK method
+    await assistant.update_instructions(get_system_prompt(current_session_lang))
     greeting_handle = session.say(greeting, allow_interruptions=False)
 
     # Track if the greeting has completely finished playing
@@ -332,21 +611,20 @@ async def my_agent(ctx: JobContext):
     # Track the last user speech text for language-aware silence prompting
     last_user_text = ""
 
-    @session.on("user_speech_committed")
-    def on_user_speech_committed(*args):
+    @session.on("user_input_transcribed")
+    def on_user_input_transcribed(ev: UserInputTranscribedEvent):
         nonlocal last_user_text, current_session_lang
-        if args:
-            msg = args[-1]
-            if msg:
-                text = ""
-                if hasattr(msg, "content") and isinstance(msg.content, str):
-                    text = msg.content
-                elif hasattr(msg, "text") and isinstance(msg.text, str):
-                    text = msg.text
-                if text:
-                    last_user_text = text
-                    # Dynamically update session language if user explicitly switches language
-                    current_session_lang = detect_language(text)
+        if ev.is_final and ev.transcript:
+            text = ev.transcript
+            last_user_text = text
+            # Dynamically update session language if user explicitly switches language
+            current_session_lang = detect_language(text)
+            assistant.current_lang = current_session_lang
+            logger.info(f"User speech committed: '{text}'. Detected language: {current_session_lang}")
+            # Update instructions synchronously to avoid race conditions
+            update_assistant_prompt(assistant, current_session_lang)
+            # Also trigger the async task for any internal SDK side-effects
+            asyncio.create_task(assistant.update_instructions(get_system_prompt(current_session_lang)))
 
     silence_count = 0
     silence_timer_task = None
