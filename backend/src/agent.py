@@ -23,6 +23,7 @@ from livekit.agents import (
     RunContext,
     UserInputTranscribedEvent,
 )
+
 try:
     from services.memory_service import MemoryService
 except ImportError:
@@ -34,7 +35,8 @@ logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
 
-def get_system_prompt(lang: str, is_guest: bool = False) -> str:
+
+def get_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -> str:
     # Build language-specific constraints and prompt structures
     if lang == "English":
         lang_instruction = "Language: You MUST respond and speak ENTIRELY in English. Do NOT use any Hindi, Hinglish, or Devanagari words under any circumstances."
@@ -44,7 +46,9 @@ def get_system_prompt(lang: str, is_guest: bool = False) -> str:
             "- User: 'I have fever and body pain.' -> Reply: 'I see. You have a fever along with body pain. Have you checked your temperature?'"
         )
         consent_example = "'Can I save your preferred language and step goal?'"
-        lookup_unclear_prompt = "'I heard Ponda, Goa. Is that what you meant?' or 'Did you mean Dehradun?'"
+        lookup_unclear_prompt = (
+            "'I heard Ponda, Goa. Is that what you meant?' or 'Did you mean Dehradun?'"
+        )
         no_location_prompt = "'Which city, area, or district should I search?'"
         failure_prompt = "'I\\'m unable to access the healthcare facility data right now. Please try again shortly.'"
     elif lang == "Hindi":
@@ -55,7 +59,9 @@ def get_system_prompt(lang: str, is_guest: bool = False) -> str:
             "- User: 'मुझे बुखार और शरीर में दर्द है।' -> Reply: 'मैं समझ सकता हूँ। आपको बुखार के साथ शरीर में दर्द भी है। क्या आपने अपना तापमान चेक किया है?'"
         )
         consent_example = "'क्या मैं आपकी पसंदीदा भाषा और स्टेप गोल सेव कर सकती हूँ?'"
-        lookup_unclear_prompt = "'मैंने पोंडा, गोवा सुना। क्या आपका यही मतलब था?' या 'क्या आपका मतलब देहरादून था?'"
+        lookup_unclear_prompt = (
+            "'मैंने पोंडा, गोवा सुना। क्या आपका यही मतलब था?' या 'क्या आपका मतलब देहरादून था?'"
+        )
         no_location_prompt = "'आप किस शहर, क्षेत्र या जिले में खोजना चाहते हैं?'"
         failure_prompt = "'मैं इस समय स्वास्थ्य केंद्र की जानकारी नहीं देख पा रही हूँ। कृपया कुछ समय बाद फिर से प्रयास करें।'"
     else:  # Hinglish
@@ -65,15 +71,29 @@ def get_system_prompt(lang: str, is_guest: bool = False) -> str:
             "- User: 'Mujhe headache hai since yesterday.' -> Reply: 'Samajh gaya. Aapko kal se headache hai. Kya headache continuous hai ya kabhi-kabhi ho raha hai?'\n"
             "- User: 'I have fever but body pain bhi ho raha hai.' -> Reply: 'I understand. Aapko fever ke saath body pain bhi ho raha hai. Have you checked your temperature?'"
         )
-        consent_example = "'Kya main aapki preferred language aur step goal save kar sakta hoon?'"
+        consent_example = (
+            "'Kya main aapki preferred language aur step goal save kar sakta hoon?'"
+        )
         lookup_unclear_prompt = "'Mujhe Ponda, Goa sunai diya. Kya aapka wahi matlab tha?' or 'Kya aapka matlab Dehradun tha?'"
-        no_location_prompt = "'Aap kis city, area, ya district mein search karna chahte hain?'"
+        no_location_prompt = (
+            "'Aap kis city, area, ya district mein search karna chahte hain?'"
+        )
         failure_prompt = "'Main abhi healthcare facilities ki details nahi dekh paa rahi hoon. Please thodi der baad try karein.'"
 
     if is_guest:
-        memory_instruction = "- Since this is a guest session, do NOT call the `lookup_caller` tool.\n"
+        memory_instruction = (
+            "- Since this is a guest session, do NOT call the `lookup_caller` tool.\n"
+        )
     else:
         memory_instruction = "- You must call the `lookup_caller` tool at the start of the conversation to retrieve any existing profile/memory.\n"
+
+    sip_instruction = ""
+    if is_sip:
+        sip_instruction = (
+            "OUTBOUND CALL RULES:\n"
+            "- The user is connected via an outbound telephone call.\n"
+            "- If the user asks to stop calling, stop these reminders, opt out, or unsubscribe, you MUST immediately call the `opt_out_telephony` tool to register their preference, tell them you have updated their preferences and won't call them again, say goodbye, and stop speaking.\n"
+        )
 
     prompt = (
         f"You are Aarogyam, an AI Health & Wellness Voice Assistant. You are NOT a doctor and never claim to replace one.\n"
@@ -105,16 +125,20 @@ def get_system_prompt(lang: str, is_guest: bool = False) -> str:
         f"- After a successful lookup, summarize only the top 2 to 3 facilities. Mention the location searched, and clearly attribute the information to OpenStreetMap contributors. Tell the user to verify availability or hours before visiting. Do NOT claim the data is government-certified.\n"
         f"- If the lookup fails, state: {failure_prompt}.\n"
         f"- Do NOT invent, guess, or fabricate facility names, addresses, or hours.\n"
+        f"{sip_instruction}"
         f"Style: Max 2-3 short sentences. NEVER use markdown (no * or **, lists, or bullet points). Use simple conversational language without medical jargon.\n"
         f"First Response: If no assistant greeting or message has been spoken yet in the conversation history, greet the user warmly. Otherwise, if a greeting was already spoken, do NOT greet or introduce yourself again; start directly by acknowledging their query."
     )
     return prompt
 
+
 SYSTEM_PROMPT = get_system_prompt("Hinglish")
+
 
 def update_assistant_prompt(assistant, lang: str) -> None:
     is_guest = getattr(assistant, "is_guest", False)
-    new_prompt = get_system_prompt(lang, is_guest=is_guest)
+    is_sip = getattr(assistant, "is_sip", False)
+    new_prompt = get_system_prompt(lang, is_guest=is_guest, is_sip=is_sip)
     assistant._instructions = new_prompt
     if hasattr(assistant, "_chat_ctx") and assistant._chat_ctx is not None:
         for item in assistant._chat_ctx._items:
@@ -127,7 +151,7 @@ def detect_language(text: str) -> str:
         return "Hinglish"
 
     text = text.lower().strip()
-    
+
     # Check for Devanagari script (Unicode range: 0900 to 097F)
     has_devanagari = any(0x0900 <= ord(char) <= 0x097F for char in text)
     if has_devanagari:
@@ -135,45 +159,100 @@ def detect_language(text: str) -> str:
 
     # Common Hindi/Hinglish vocabulary mapping
     hindi_hinglish_words = {
-        "hai", "hain", "hoon", "aap", "tum", "mera", "meri", "mujhe", "kya", 
-        "haan", "na", "nahi", "nhi", "ji", "karo", "kaise", "thik", "theek", 
-        "se", "ko", "par", "ek", "aur", "ya", "bhi", "yeh", "woh", "sath",
-        "swasthya", "dard", "bukhar", "sir", "sar", "pet", "bimari", "doctor",
-        "dawa", "namaste", "namaskar", "pranam"
+        "hai",
+        "hain",
+        "hoon",
+        "aap",
+        "tum",
+        "mera",
+        "meri",
+        "mujhe",
+        "kya",
+        "haan",
+        "na",
+        "nahi",
+        "nhi",
+        "ji",
+        "karo",
+        "kaise",
+        "thik",
+        "theek",
+        "se",
+        "ko",
+        "par",
+        "ek",
+        "aur",
+        "ya",
+        "bhi",
+        "yeh",
+        "woh",
+        "sath",
+        "swasthya",
+        "dard",
+        "bukhar",
+        "sir",
+        "sar",
+        "pet",
+        "bimari",
+        "doctor",
+        "dawa",
+        "namaste",
+        "namaskar",
+        "pranam",
     }
 
     words = text.split()
     hindi_word_count = sum(1 for w in words if w in hindi_hinglish_words)
-    
+
     if hindi_word_count > 0:
         non_hindi_words = sum(1 for w in words if w not in hindi_hinglish_words)
         if non_hindi_words > 0:
             return "Hinglish"
         return "Hindi"
-        
+
     return "English"
+
 
 # Localized silence prompts
 SILENCE_PROMPTS = {
     "English": {
         "prompt1": "I'm still here. Whenever you're ready, you can ask your question.",
-        "goodbye": "It looks like there are no more questions for now. I'm here whenever you need me. Take care."
+        "goodbye": "It looks like there are no more questions for now. I'm here whenever you need me. Take care.",
     },
     "Hindi": {
         "prompt1": "मैं यहीं हूँ। जब आप तैयार हों, अपना सवाल पूछ सकते हैं।",
-        "goodbye": "लगता है अभी कोई और सवाल नहीं है। जब भी ज़रूरत हो, मैं यहीं हूँ। अपना ख्याल रखिए।"
+        "goodbye": "लगता है अभी कोई और सवाल नहीं है। जब भी ज़रूरत हो, मैं यहीं हूँ। अपना ख्याल रखिए।",
     },
     "Hinglish": {
         "prompt1": "Main yahin hoon. Jab aap ready hon, apna question pooch sakte hain.",
-        "goodbye": "Lagta hai filhaal koi aur question nahi hai. Jab bhi zarurat ho, main yahin hoon. Apna khayal rakhiye."
-    }
+        "goodbye": "Lagta hai filhaal koi aur question nahi hai. Jab bhi zarurat ho, main yahin hoon. Apna khayal rakhiye.",
+    },
 }
 
 GREETINGS = [
     "Namaste! Main Aarogyam hoon, aapka AI Health Assistant. Main general health guidance, healthy lifestyle tips aur common health-related questions mein aapki madad kar sakta hoon. Main doctor nahi hoon aur diagnosis ya prescription provide nahi karta. Batayiye, aaj main aapki kis tarah madad kar sakta hoon?",
     "Namaste! Aarogyam AI Health Companion mein aapka swagat hai. Main aapko health and wellness tips, healthy habits aur general medical queries par guidance de sakta hoon. Main koi professional doctor nahi hoon, isliye diagnosis ya medication nahi de sakta. Aaj main aapki kya madad karoon?",
-    "Namaste! Main Aarogyam AI Assistant bol raha hoon. Yahan main aapki wellness, nutrition aur daily health habits se jude sawaalon mein madad karne ke liye hoon. Main professional medical advice ya prescription nahi deta hoon. Batayiye, aaj aap apne swasthya ke baare mein kya poochna chahenge?"
+    "Namaste! Main Aarogyam AI Assistant bol raha hoon. Yahan main aapki wellness, nutrition aur daily health habits se jude sawaalon mein madad karne ke liye hoon. Main professional medical advice ya prescription nahi deta hoon. Batayiye, aaj aap apne swasthya ke baare mein kya poochna chahenge?",
 ]
+
+OUTBOUND_GREETINGS = {
+    "English": (
+        "Hello, this is Aarogyam, your AI Health Companion. I am calling to remind you "
+        "about your scheduled health follow-up and step goals today. If you wish to stop "
+        "receiving these reminders, you can say 'stop calling' at any time. How are you feeling today?"
+    ),
+    "Hinglish": (
+        "Namaste, main Aarogyam bol raha hoon, aapka AI Health Companion. Main aapko aapke "
+        "health follow-up aur daily step goals ke baare mein remind karne ke liye call kar raha hoon. "
+        "Agar aap ye calls band karna chahte hain, toh aap kisi bhi waqt 'stop calling' keh sakte hain. "
+        "Aaj aap kaisa feel kar rahe hain?"
+    ),
+    "Hindi": (
+        "नमस्ते, मैं आरोग्यम हूँ, आपकी एआई हेल्थ साथी। मैं आपको आपके स्वास्थ्य फॉलो-अप और "
+        "दैनिक स्टेप गोल्स के बारे में याद दिलाने के लिए कॉल कर रही हूँ। अगर आप ये कॉल्स "
+        "बंद करना चाहते हैं, तो आप किसी भी समय 'कॉल बंद करें' कह सकते हैं। आज आप कैसा महसूस कर रहे हैं?"
+    ),
+}
 
 
 def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -195,21 +274,16 @@ def _geocode_location(location: str) -> tuple[float, float, str] | None:
     """Geocode a location in India using OSM Nominatim API.
     Returns (lat, lon, display_name) or None.
     """
-    params = {
-        "q": location,
-        "format": "json",
-        "limit": 1,
-        "countrycodes": "in"
-    }
+    params = {"q": location, "format": "json", "limit": 1, "countrycodes": "in"}
     url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(params)
-    
+
     req = urllib.request.Request(
         url,
         headers={
             "User-Agent": "AarogyamHealthAccessAgent/1.0 (contact: support@aarogyam.ai)"
-        }
+        },
     )
-    
+
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             if response.status != 200:
@@ -217,9 +291,11 @@ def _geocode_location(location: str) -> tuple[float, float, str] | None:
                 return None
             data = json.loads(response.read().decode("utf-8"))
             if not data:
-                logger.warning(f"Nominatim returned empty results for location: {location}")
+                logger.warning(
+                    f"Nominatim returned empty results for location: {location}"
+                )
                 return None
-            
+
             first = data[0]
             lat = float(first["lat"])
             lon = float(first["lon"])
@@ -241,64 +317,77 @@ def _fetch_nearby_facilities(lat: float, lon: float) -> list[dict]:
   nwr["amenity"="doctors"](around:5000,{lat},{lon});
 );
 out body;"""
-    
+
     url = "https://overpass-api.de/api/interpreter"
     req_data = urllib.parse.urlencode({"data": query}).encode("utf-8")
-    
+
     req = urllib.request.Request(
         url,
         data=req_data,
         headers={
             "User-Agent": "AarogyamHealthAccessAgent/1.0 (contact: support@aarogyam.ai)",
-            "Content-Type": "application/x-www-form-urlencoded"
-        }
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
     )
-    
+
     try:
         with urllib.request.urlopen(req, timeout=15) as response:
             if response.status != 200:
                 logger.error(f"Overpass API returned HTTP {response.status}")
                 return []
-            
+
             data = json.loads(response.read().decode("utf-8"))
             elements = data.get("elements", [])
             facilities = []
-            
+
             for elem in elements:
                 tags = elem.get("tags", {})
                 name = tags.get("name")
                 if not name:
                     continue
-                
+
                 elem_lat = elem.get("lat")
                 elem_lon = elem.get("lon")
-                
+
                 if elem_lat is None or elem_lon is None:
                     center = elem.get("center", {})
                     elem_lat = center.get("lat")
                     elem_lon = center.get("lon")
-                
+
                 if elem_lat is None or elem_lon is None:
                     continue
-                
+
                 dist = _haversine_distance(lat, lon, elem_lat, elem_lon)
-                
+
                 addr_parts = []
-                for tag_name in ["addr:street", "addr:suburb", "addr:city", "addr:postcode"]:
+                for tag_name in [
+                    "addr:street",
+                    "addr:suburb",
+                    "addr:city",
+                    "addr:postcode",
+                ]:
                     val = tags.get(tag_name)
                     if val:
                         addr_parts.append(val)
-                address = ", ".join(addr_parts) if addr_parts else "Location details not available"
-                
-                facilities.append({
-                    "name": name,
-                    "type": tags.get("amenity", "healthcare_facility").replace("_", " ").title(),
-                    "address": address,
-                    "distance_km": round(dist, 2),
-                    "lat": elem_lat,
-                    "lon": elem_lon
-                })
-            
+                address = (
+                    ", ".join(addr_parts)
+                    if addr_parts
+                    else "Location details not available"
+                )
+
+                facilities.append(
+                    {
+                        "name": name,
+                        "type": tags.get("amenity", "healthcare_facility")
+                        .replace("_", " ")
+                        .title(),
+                        "address": address,
+                        "distance_km": round(dist, 2),
+                        "lat": elem_lat,
+                        "lon": elem_lon,
+                    }
+                )
+
             facilities.sort(key=lambda x: x["distance_km"])
             return facilities
     except Exception as e:
@@ -307,12 +396,21 @@ out body;"""
 
 
 class Assistant(Agent):
-    def __init__(self, user_id: str = "guest_session", user_name: str = "Guest", is_guest: bool = True) -> None:
+    def __init__(
+        self,
+        user_id: str = "guest_session",
+        user_name: str = "Guest",
+        is_guest: bool = True,
+        is_sip: bool = False,
+    ) -> None:
         self.user_id = user_id
         self.user_name = user_name
         self.is_guest = is_guest
+        self.is_sip = is_sip
         self.current_lang = "Hinglish"
-        super().__init__(instructions=get_system_prompt("Hinglish", is_guest=is_guest))
+        super().__init__(
+            instructions=get_system_prompt("Hinglish", is_guest=is_guest, is_sip=is_sip)
+        )
 
     @function_tool
     async def lookup_caller(self, context: RunContext) -> str:
@@ -380,6 +478,39 @@ class Assistant(Agent):
             return "Error: Failed to save caller information."
 
     @function_tool
+    async def opt_out_telephony(self, context: RunContext) -> str:
+        """Use this tool when the user requests to opt-out or stop receiving future calls/reminders.
+        This will record their preference in their caller memory record.
+        """
+        logger.info(f"User {self.user_id} requested opt-out of telephony reminders.")
+        if self.is_guest:
+            return "Error: Guest sessions cannot persist opt-out preferences."
+
+        try:
+            record = MemoryService.get_caller(self.user_id)
+            name = record.name if record else self.user_name
+            language_preference = (
+                record.language_preference if record else self.current_lang
+            )
+            facts = record.facts if record else []
+
+            # Clean existing call-related facts and add opt-out flag
+            facts = [f for f in facts if "calls" not in f and "opted" not in f] + [
+                "opted_out_of_calls"
+            ]
+
+            MemoryService.save_caller(
+                user_id=self.user_id,
+                name=name,
+                language_preference=language_preference,
+                facts=facts,
+            )
+            return "Success: User has been opted out of future health reminders."
+        except Exception as e:
+            logger.error(f"Error saving opt-out preference: {e}")
+            return "Error: Failed to register opt-out preference."
+
+    @function_tool
     async def lookup_healthcare_facilities(
         self,
         context: RunContext,
@@ -402,7 +533,7 @@ class Assistant(Agent):
         logger.info(f"Looking up healthcare facilities for location: {location}")
         fetched_at = datetime.now(timezone.utc).isoformat()
         session_lang = getattr(self, "current_lang", "Hinglish")
-        
+
         # 1. Geocode the location
         geocoded = await asyncio.to_thread(_geocode_location, location)
         if not geocoded:
@@ -411,19 +542,19 @@ class Assistant(Agent):
                 "reason": f"Could not geocode or locate '{location}' in India.",
                 "fetched_at": fetched_at,
                 "session_language": session_lang,
-                "source": "OpenStreetMap contributors"
+                "source": "OpenStreetMap contributors",
             }
             return json.dumps(result, ensure_ascii=False)
-        
+
         lat, lon, display_name = geocoded
         logger.info(f"Resolved '{location}' to ({lat}, {lon}) - '{display_name}'")
-        
+
         # 2. Fetch nearby facilities (hospital, clinic, doctors) within 5km radius
         facilities = await asyncio.to_thread(_fetch_nearby_facilities, lat, lon)
-        
+
         # Limit to top 2-3 facilities
         top_facilities = facilities[:3]
-        
+
         # If no facilities found
         if not top_facilities:
             result = {
@@ -431,22 +562,19 @@ class Assistant(Agent):
                 "reason": f"No healthcare facilities found within 5km of '{display_name}'.",
                 "fetched_at": fetched_at,
                 "session_language": session_lang,
-                "source": "OpenStreetMap contributors"
+                "source": "OpenStreetMap contributors",
             }
             return json.dumps(result, ensure_ascii=False)
-        
+
         # Return success with facilities
         result = {
             "status": "success",
             "location": display_name,
-            "coordinates": {
-                "lat": lat,
-                "lon": lon
-            },
+            "coordinates": {"lat": lat, "lon": lon},
             "facilities": top_facilities,
             "fetched_at": fetched_at,
             "session_language": session_lang,
-            "source": "OpenStreetMap contributors"
+            "source": "OpenStreetMap contributors",
         }
         return json.dumps(result, ensure_ascii=False)
 
@@ -545,17 +673,21 @@ async def my_agent(ctx: JobContext):
                 break
         await asyncio.sleep(0.1)
 
+    is_sip = False
     if user_participant:
         user_id = user_participant.identity
         user_name = user_participant.name or "Guest"
         is_guest = False
+        is_sip = user_participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
     else:
         # Safe non-persistent Guest path
         user_id = "guest_session"
         user_name = "Guest"
         is_guest = True
 
-    assistant = Assistant(user_id=user_id, user_name=user_name, is_guest=is_guest)
+    assistant = Assistant(
+        user_id=user_id, user_name=user_name, is_guest=is_guest, is_sip=is_sip
+    )
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
         agent=assistant,
@@ -584,25 +716,73 @@ async def my_agent(ctx: JobContext):
             if record:
                 pref_lang = record.language_preference
                 current_session_lang = pref_lang
-                if pref_lang == "English":
-                    greeting = f"Welcome back, {record.name}. I remember your previous preferences. How can I help you today?"
-                elif pref_lang == "Hindi":
-                    greeting = f"नमस्ते {record.name}। वापस स्वागत है। मुझे आपकी पिछली पसंद याद है। आज मैं आपकी कैसे मदद करूँ?"
-                else:  # Hinglish / fallback
-                    greeting = f"Welcome back {record.name}! Mujhe aapki previous preferences yaad hain. Aaj main aapki kya help karoon?"
-                logger.info(f"Greeting returning caller {record.name} with language preference: {pref_lang}")
+
+                # Check for opt-out of telephony reminders
+                if is_sip and "opted_out_of_calls" in record.facts:
+                    opt_out_goodbye = (
+                        "नमस्ते। आपने आरोग्यम कॉल्स से ऑप्ट-आउट किया हुआ है। "
+                        "हम आपको दोबारा कॉल नहीं करेंगे। धन्यवाद।"
+                        if pref_lang == "Hindi"
+                        else "Welcome back. You have opted out of Aarogyam reminders. We will not call you again. Goodbye."
+                    )
+                    logger.info(
+                        f"SIP caller {user_id} has opted out. Playing exit message and disconnecting."
+                    )
+                    speech_handle = session.say(
+                        opt_out_goodbye, allow_interruptions=False
+                    )
+                    try:
+                        await speech_handle
+                    except Exception as e:
+                        logger.warning(f"Error waiting for opt-out goodbye speech: {e}")
+                    try:
+                        await ctx.room.disconnect()
+                    except Exception as e:
+                        logger.warning(f"Error disconnecting room: {e}")
+                    try:
+                        session.shutdown()
+                    except Exception as e:
+                        logger.warning(f"Error shutting down session: {e}")
+                    return
+
+                if is_sip:
+                    outbound_greeting = OUTBOUND_GREETINGS.get(
+                        pref_lang, OUTBOUND_GREETINGS["Hinglish"]
+                    )
+                    if pref_lang == "Hindi":
+                        greeting = f"नमस्ते {record.name}। {outbound_greeting}"
+                    else:
+                        greeting = f"Hello {record.name}. {outbound_greeting}"
+                else:
+                    if pref_lang == "English":
+                        greeting = f"Welcome back, {record.name}. I remember your previous preferences. How can I help you today?"
+                    elif pref_lang == "Hindi":
+                        greeting = f"नमस्ते {record.name}। वापस स्वागत है। मुझे आपकी पिछली पसंद याद है। आज मैं आपकी कैसे मदद करूँ?"
+                    else:  # Hinglish / fallback
+                        greeting = f"Welcome back {record.name}! Mujhe aapki previous preferences yaad hain. Aaj main aapki kya help karoon?"
+                logger.info(
+                    f"Greeting returning caller {record.name} with language preference: {pref_lang}"
+                )
         except Exception as e:
             logger.error(f"Error querying returning caller for greeting: {e}")
 
     if not greeting:
-        greeting = random.choice(GREETINGS)
-        logger.info("Greeting new caller with random default greeting.")
+        if is_sip:
+            greeting = OUTBOUND_GREETINGS.get(
+                current_session_lang, OUTBOUND_GREETINGS["Hinglish"]
+            )
+            logger.info("Greeting new SIP caller with default outbound greeting.")
+        else:
+            greeting = random.choice(GREETINGS)
+            logger.info("Greeting new caller with random default greeting.")
 
     assistant.current_lang = current_session_lang
     # Update assistant instructions synchronously first to avoid race conditions
     update_assistant_prompt(assistant, current_session_lang)
     # Also update asynchronously via the SDK method
-    await assistant.update_instructions(get_system_prompt(current_session_lang))
+    await assistant.update_instructions(
+        get_system_prompt(current_session_lang, is_guest=is_guest, is_sip=is_sip)
+    )
     greeting_handle = session.say(greeting, allow_interruptions=False)
 
     # Track if the greeting has completely finished playing
@@ -620,11 +800,15 @@ async def my_agent(ctx: JobContext):
             # Dynamically update session language if user explicitly switches language
             current_session_lang = detect_language(text)
             assistant.current_lang = current_session_lang
-            logger.info(f"User speech committed: '{text}'. Detected language: {current_session_lang}")
+            logger.info(
+                f"User speech committed: '{text}'. Detected language: {current_session_lang}"
+            )
             # Update instructions synchronously to avoid race conditions
             update_assistant_prompt(assistant, current_session_lang)
             # Also trigger the async task for any internal SDK side-effects
-            asyncio.create_task(assistant.update_instructions(get_system_prompt(current_session_lang)))
+            asyncio.create_task(
+                assistant.update_instructions(get_system_prompt(current_session_lang))
+            )
 
     silence_count = 0
     silence_timer_task = None
@@ -642,30 +826,28 @@ async def my_agent(ctx: JobContext):
                 await asyncio.sleep(8.0)
                 silence_count = 1
                 logger.info(f"Silence detected. Language: {lang}. Prompting user.")
-                session.say(
-                    prompts["prompt1"],
-                    allow_interruptions=True
-                )
+                session.say(prompts["prompt1"], allow_interruptions=True)
                 start_silence_timer()
             elif silence_count == 1:
                 # 2nd silence is 10 seconds
                 await asyncio.sleep(10.0)
                 silence_count = 2
-                logger.info(f"Silence detected twice. Language: {lang}. Saying goodbye and shutting down.")
+                logger.info(
+                    f"Silence detected twice. Language: {lang}. Saying goodbye and shutting down."
+                )
                 speech_handle = session.say(
-                    prompts["goodbye"],
-                    allow_interruptions=False
+                    prompts["goodbye"], allow_interruptions=False
                 )
                 try:
                     await speech_handle
                 except Exception as e:
                     logger.warning(f"Error waiting for goodbye speech: {e}")
-                
+
                 try:
                     await ctx.room.disconnect()
                 except Exception as e:
                     logger.warning(f"Error disconnecting room: {e}")
-                
+
                 try:
                     session.shutdown()
                 except Exception as e:
@@ -677,7 +859,11 @@ async def my_agent(ctx: JobContext):
         nonlocal silence_timer_task
         cancel_silence_timer()
         # Start silence monitoring ONLY after the initial greeting has completely finished playing
-        if greeting_finished and session.user_state == "listening" and session.agent_state == "listening":
+        if (
+            greeting_finished
+            and session.user_state == "listening"
+            and session.agent_state == "listening"
+        ):
             silence_timer_task = asyncio.create_task(run_silence_timer())
 
     def cancel_silence_timer():
