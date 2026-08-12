@@ -29,7 +29,8 @@ import { RoomAudioRenderer } from '@livekit/components-react';
 import { useLanguage, useAuth } from '@/components/app/providers';
 
 interface AarogyamVoiceOverlayProps {
-  onClose: () => void;
+  onClose?: () => void;
+  isEmbedded?: boolean;
 }
 
 interface VoiceStateTranslations {
@@ -103,9 +104,13 @@ const getTranslation = (lang: string): VoiceStateTranslations => {
   return overlayTranslations[lang] || overlayTranslations['English'];
 };
 
-function InnerVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
+function InnerVoiceOverlay({ onClose, isEmbedded = false }: AarogyamVoiceOverlayProps) {
   const session = useSessionContext();
   if (!session) return null;
+  return <InnerVoiceOverlayContent onClose={onClose} isEmbedded={isEmbedded} session={session} />;
+}
+
+function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: AarogyamVoiceOverlayProps & { session: any }) {
 
   const { state: agentState } = useAgent();
   const { messages } = useSessionMessages(session);
@@ -604,7 +609,7 @@ function InnerVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
   const latestMessage = messages.length > 0 ? messages[messages.length - 1] : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/98 text-white backdrop-blur-xl animate-in fade-in duration-300">
+    <div className={isEmbedded ? "relative flex flex-col w-full h-[650px] bg-slate-950 text-white rounded-3xl overflow-hidden border border-slate-900 shadow-xl" : "fixed inset-0 z-50 flex flex-col bg-slate-950/98 text-white backdrop-blur-xl animate-in fade-in duration-300"}>
       
       {/* Header Bar */}
       <header className="flex items-center justify-between px-6 py-5 border-b border-white/5 bg-black/20 z-10">
@@ -637,13 +642,15 @@ function InnerVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
             <MessageSquare className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">{mode === 'voice' ? 'Chat Mode' : 'Voice Mode'}</span>
           </button>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition cursor-pointer"
-            aria-label="Close Assistant"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          {!isEmbedded && onClose && (
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition cursor-pointer"
+              aria-label="Close Assistant"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          )}
         </div>
       </header>
 
@@ -820,7 +827,7 @@ function InnerVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
   );
 }
 
-export function AarogyamVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
+export function AarogyamVoiceOverlay({ onClose, isEmbedded = false }: AarogyamVoiceOverlayProps) {
   const tokenSource = useMemo(() => {
     if (typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string') {
       return getSandboxTokenSource(APP_CONFIG_DEFAULTS);
@@ -927,7 +934,7 @@ export function AarogyamVoiceOverlay({ onClose }: AarogyamVoiceOverlayProps) {
           animation: aarogyam-pulse-ring-fast 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
       `}</style>
-      <InnerVoiceOverlay onClose={onClose} />
+      <InnerVoiceOverlay onClose={onClose} isEmbedded={isEmbedded} />
       <RoomAudioRenderer />
     </AgentSessionProvider>
   );

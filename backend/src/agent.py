@@ -26,8 +26,12 @@ from livekit.agents import (
 
 try:
     from services.memory_service import MemoryService
+    from services.escalation_service import EscalationService
+    from models.escalation import Escalation
 except ImportError:
     from .services.memory_service import MemoryService
+    from .services.escalation_service import EscalationService
+    from .models.escalation import Escalation
 from livekit.plugins import murf, silero, google, deepgram, noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
@@ -46,6 +50,11 @@ def get_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -
             "- User: 'I have fever and body pain.' -> Reply: 'I see. You have a fever along with body pain. Have you checked your temperature?'"
         )
         consent_example = "'Can I save your preferred language and step goal?'"
+        escalation_consent_example = (
+            "'Your symptoms might be serious / I cannot diagnose medical conditions. I can create a human healthcare support request for you. "
+            "With your permission, I will share your user ID, a summary of your problem, what I checked, your urgency level, language, and preferred follow-up method. "
+            "Would you like me to proceed?'"
+        )
         lookup_unclear_prompt = (
             "'I heard Ponda, Goa. Is that what you meant?' or 'Did you mean Dehradun?'"
         )
@@ -59,6 +68,11 @@ def get_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -
             "- User: 'मुझे बुखार और शरीर में दर्द है।' -> Reply: 'मैं समझ सकता हूँ। आपको बुखार के साथ शरीर में दर्द भी है। क्या आपने अपना तापमान चेक किया है?'"
         )
         consent_example = "'क्या मैं आपकी पसंदीदा भाषा और स्टेप गोल सेव कर सकती हूँ?'"
+        escalation_consent_example = (
+            "'आपके लक्षण गंभीर हो सकते हैं / मैं चिकित्सा स्थिति का निदान नहीं कर सकती। मैं आपके लिए मानव स्वास्थ्य सहायता अनुरोध बना सकती हूँ। "
+            "आपकी अनुमति से, मैं आपकी यूजर आईडी, समस्या का सारांश, जो मैंने जांचा है, आपकी तत्परता स्तर (urgency), भाषा और पसंदीदा संपर्क विधि साझा करूँगी। "
+            "क्या आप चाहते हैं कि मैं आगे बढ़ूँ?'"
+        )
         lookup_unclear_prompt = (
             "'मैंने पोंडा, गोवा सुना। क्या आपका यही मतलब था?' या 'क्या आपका मतलब देहरादून था?'"
         )
@@ -73,6 +87,11 @@ def get_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -
         )
         consent_example = (
             "'Kya main aapki preferred language aur step goal save kar sakta hoon?'"
+        )
+        escalation_consent_example = (
+            "'Aapke symptoms serious ho sakte hain / Main medical condition diagnose nahi kar sakta. Main aapke liye ek human healthcare support request create kar sakta hoon. "
+            "Aapki permission se, main aapki user ID, problem summary, jo maine check kiya hai, aapki urgency level, language aur preferred follow-up method share karunga. "
+            "Kya aap chahte hain ki main proceed karoon?'"
         )
         lookup_unclear_prompt = "'Mujhe Ponda, Goa sunai diya. Kya aapka wahi matlab tha?' or 'Kya aapka matlab Dehradun tha?'"
         no_location_prompt = (
@@ -111,6 +130,18 @@ def get_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -
         f"- If the response is negative, ambiguous, or absent, do NOT call the tool and do NOT save.\n"
         f"- Never infer consent from the information itself. Never treat silence as consent. Never save health information without consent.\n"
         f"- Keep memory limited to name, language preference, last interaction, and limited triage outcome/wellness facts explicitly approved (including general location/district such as 'lives in Jaipur'). Do NOT store sensitive medical notes, clinical conditions, prescriptions, or precise location data (like exact addresses or coordinates).\n"
+        f"HEALTH ACCESS ESCALATION & HUMAN HELP CONSENT:\n"
+        f"- Escalation Situations:\n"
+        f"  1. RED-FLAG HEALTH SYMPTOMS: If the user reports potentially serious or red-flag symptoms, do not attempt to diagnose or confidently solve the problem. Explain you are an AI assistant and immediately offer to create a human healthcare support request (e.g. {escalation_consent_example}).\n"
+        f"  2. DIAGNOSIS REQUEST: If the user explicitly asks you to diagnose a medical condition, explain that you cannot provide a diagnosis and offer to create a request for human healthcare support (e.g. {escalation_consent_example}).\n"
+        f"- Consent Flow:\n"
+        f"  - When an escalation situation is detected, DO NOT call the `create_escalation` tool immediately.\n"
+        f"  - You MUST first tell the user what information will be shared (their caller/user identifier, a concise summary of their problem, what Aarogyam has checked, their urgency level, language, and preferred follow-up method) and ask for their explicit permission/consent to escalate.\n"
+        f"  - If the user explicitly says YES/gives clear consent, you MUST call the `create_escalation` tool. After successful execution, tell the caller the generated reference ID and explain honestly what happens next (that a human healthcare support representative will review their request; do NOT promise an immediate response).\n"
+        f"  - If the user says NO/refuses, do NOT call the `create_escalation` tool, confirm you will not create the request, and continue the conversation without sharing their info.\n"
+        f"  - Do NOT treat silence, uncertainty, or unrelated responses as consent.\n"
+        f"  - Do NOT store or send: passwords, OTPs, PINs, account numbers, unnecessary private information, or the complete conversation transcript in the tools.\n"
+        f"  - Normal conversations (non-escalation situations) must NOT call `create_escalation`.\n"
         f"HEALTHCARE FACILITY LOOKUP:\n"
         f"- You can search for nearby hospitals, clinics, and doctors using the `lookup_healthcare_facilities` tool.\n"
         f"- If the user asks for a healthcare facility 'near me', 'nearby', 'closest', 'nearest', or otherwise asks for a facility without specifying a location name:\n"
@@ -577,6 +608,47 @@ class Assistant(Agent):
             "source": "OpenStreetMap contributors",
         }
         return json.dumps(result, ensure_ascii=False)
+
+    @function_tool
+    async def create_escalation(
+        self,
+        context: RunContext,
+        problem_summary: str,
+        checks_performed: str,
+        urgency: str,
+        preferred_follow_up: str,
+    ) -> str:
+        """Create a human healthcare support request.
+        CRITICAL: You are FORBIDDEN from invoking this tool before telling the user what details will be shared
+        and receiving explicit positive consent. If consent is not explicitly granted, do NOT call this tool.
+
+        Args:
+            problem_summary: A concise summary of the caller's problem/symptoms. Do NOT include sensitive info like passwords, OTPs, PINs, or account numbers.
+            checks_performed: What Aarogyam checked, advised, or determined so far.
+            urgency: The urgency level of the request. Must be one of: 'low', 'medium', 'high', 'emergency'.
+            preferred_follow_up: The user's preferred follow-up method (e.g. 'phone call', 'SMS').
+        """
+        logger.info(
+            f"Creating escalation for user_id: {self.user_id}. Urgency: {urgency}"
+        )
+        if urgency not in ("low", "medium", "high", "emergency"):
+            return "Error: Urgency must be one of: 'low', 'medium', 'high', 'emergency'."
+
+        try:
+            escalation = Escalation(
+                user_id=self.user_id,
+                problem_summary=problem_summary,
+                checks_performed=checks_performed,
+                urgency=urgency,
+                language=self.current_lang,
+                preferred_follow_up=preferred_follow_up,
+            )
+            EscalationService.create_escalation_record(escalation)
+            logger.info(f"Escalation successfully created with reference ID: {escalation.id}")
+            return f"Success: Request created successfully. Reference ID: {escalation.id}. Status: {escalation.status}."
+        except Exception as e:
+            logger.error(f"Error creating escalation record: {e}")
+            return "Error: Failed to create escalation request."
 
 
 server = AgentServer()
