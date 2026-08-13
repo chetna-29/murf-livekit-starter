@@ -28,10 +28,12 @@ try:
     from services.memory_service import MemoryService
     from services.escalation_service import EscalationService
     from models.escalation import Escalation
+    from services.analytics_service import AnalyticsService
 except ImportError:
     from .services.memory_service import MemoryService
     from .services.escalation_service import EscalationService
     from .models.escalation import Escalation
+    from .services.analytics_service import AnalyticsService
 from livekit.plugins import murf, silero, google, deepgram, noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
@@ -439,6 +441,16 @@ class Assistant(Agent):
         self.is_guest = is_guest
         self.is_sip = is_sip
         self.current_lang = "Hinglish"
+        self.call_tracker = {
+            "started_at": datetime.now(timezone.utc),
+            "user_speech_count": 0,
+            "agent_response_count": 0,
+            "escalation_status": None,
+            "lookup_status": None,
+            "opt_out_status": None,
+            "has_error": False,
+            "is_saved": False,
+        }
         super().__init__(
             instructions=get_system_prompt("Hinglish", is_guest=is_guest, is_sip=is_sip)
         )
@@ -514,7 +526,9 @@ class Assistant(Agent):
         This will record their preference in their caller memory record.
         """
         logger.info(f"User {self.user_id} requested opt-out of telephony reminders.")
+        self.call_tracker["opt_out_status"] = "requested"
         if self.is_guest:
+            self.call_tracker["opt_out_status"] = "failed"
             return "Error: Guest sessions cannot persist opt-out preferences."
 
         try:
@@ -536,9 +550,12 @@ class Assistant(Agent):
                 language_preference=language_preference,
                 facts=facts,
             )
+            self.call_tracker["opt_out_status"] = "success"
             return "Success: User has been opted out of future health reminders."
         except Exception as e:
             logger.error(f"Error saving opt-out preference: {e}")
+            self.call_tracker["opt_out_status"] = "failed"
+            self.call_tracker["has_error"] = True
             return "Error: Failed to register opt-out preference."
 
     @function_tool
@@ -562,12 +579,14 @@ class Assistant(Agent):
             location: The name of the city, district, neighborhood, or area in India to search in.
         """
         logger.info(f"Looking up healthcare facilities for location: {location}")
+        self.call_tracker["lookup_status"] = "requested"
         fetched_at = datetime.now(timezone.utc).isoformat()
         session_lang = getattr(self, "current_lang", "Hinglish")
 
         # 1. Geocode the location
         geocoded = await asyncio.to_thread(_geocode_location, location)
         if not geocoded:
+            self.call_tracker["lookup_status"] = "failed"
             result = {
                 "status": "failed",
                 "reason": f"Could not geocode or locate '{location}' in India.",
@@ -588,6 +607,7 @@ class Assistant(Agent):
 
         # If no facilities found
         if not top_facilities:
+            self.call_tracker["lookup_status"] = "success"
             result = {
                 "status": "failed",
                 "reason": f"No healthcare facilities found within 5km of '{display_name}'.",
@@ -598,6 +618,7 @@ class Assistant(Agent):
             return json.dumps(result, ensure_ascii=False)
 
         # Return success with facilities
+        self.call_tracker["lookup_status"] = "success"
         result = {
             "status": "success",
             "location": display_name,
@@ -631,7 +652,9 @@ class Assistant(Agent):
         logger.info(
             f"Creating escalation for user_id: {self.user_id}. Urgency: {urgency}"
         )
+        self.call_tracker["escalation_status"] = "requested"
         if urgency not in ("low", "medium", "high", "emergency"):
+            self.call_tracker["escalation_status"] = "failed"
             return "Error: Urgency must be one of: 'low', 'medium', 'high', 'emergency'."
 
         try:
@@ -645,9 +668,12 @@ class Assistant(Agent):
             )
             EscalationService.create_escalation_record(escalation)
             logger.info(f"Escalation successfully created with reference ID: {escalation.id}")
+            self.call_tracker["escalation_status"] = "created"
             return f"Success: Request created successfully. Reference ID: {escalation.id}. Status: {escalation.status}."
         except Exception as e:
             logger.error(f"Error creating escalation record: {e}")
+            self.call_tracker["escalation_status"] = "failed"
+            self.call_tracker["has_error"] = True
             return "Error: Failed to create escalation request."
 
 
@@ -867,6 +893,8 @@ async def my_agent(ctx: JobContext):
     def on_user_input_transcribed(ev: UserInputTranscribedEvent):
         nonlocal last_user_text, current_session_lang
         if ev.is_final and ev.transcript:
+            # Increment user speech count
+            assistant.call_tracker["user_speech_count"] += 1
             text = ev.transcript
             last_user_text = text
             # Dynamically update session language if user explicitly switches language
@@ -961,9 +989,74 @@ async def my_agent(ctx: JobContext):
     def on_agent_state_changed(ev):
         logger.debug(f"Agent state changed: {ev.old_state} -> {ev.new_state}")
         if ev.new_state == "speaking":
+            assistant.call_tracker["agent_response_count"] += 1
             cancel_silence_timer()
         elif ev.new_state == "listening":
             start_silence_timer()
+
+    def save_analytics_callback():
+        if assistant.call_tracker.get("is_saved"):
+            return
+        assistant.call_tracker["is_saved"] = True
+
+        ended_at = datetime.now(timezone.utc)
+        started_at = assistant.call_tracker["started_at"]
+        duration_seconds = (ended_at - started_at).total_seconds()
+
+        outcome = "failed"
+        failure_reason = None
+
+        tracker = assistant.call_tracker
+
+        if tracker["user_speech_count"] == 0:
+            outcome = "failed"
+            failure_reason = "No user speech detected"
+        elif tracker["has_error"]:
+            outcome = "failed"
+            failure_reason = "Internal error during call"
+        elif tracker["escalation_status"] == "requested":
+            outcome = "failed"
+            failure_reason = "Escalation requested but not completed"
+        elif tracker["escalation_status"] == "failed":
+            outcome = "failed"
+            failure_reason = "Escalation creation failed"
+        elif tracker["escalation_status"] == "created":
+            outcome = "successful"
+        elif tracker["lookup_status"] == "failed":
+            outcome = "failed"
+            failure_reason = "Healthcare facility lookup failed"
+        elif tracker["opt_out_status"] == "failed":
+            outcome = "failed"
+            failure_reason = "Opt-out failed"
+        elif tracker["opt_out_status"] == "success":
+            outcome = "successful"
+        elif tracker["user_speech_count"] > 0 and tracker["agent_response_count"] > 0:
+            outcome = "successful"
+        else:
+            outcome = "failed"
+            failure_reason = "Conversation did not reach a success state"
+
+        try:
+            AnalyticsService.save_call_analytics(
+                session_id=ctx.job.id,
+                started_at=started_at,
+                ended_at=ended_at,
+                duration_seconds=duration_seconds,
+                channel="sip" if is_sip else "browser",
+                language=assistant.current_lang,
+                outcome=outcome,
+                failure_reason=failure_reason
+            )
+            logger.info(f"Recorded call analytics: session_id={ctx.job.id}, outcome={outcome}, duration={duration_seconds:.1f}s")
+        except Exception as e:
+            logger.error(f"Failed to save call analytics: {e}")
+
+    ctx.add_shutdown_callback(save_analytics_callback)
+
+    @ctx.room.on("disconnected")
+    def on_disconnected():
+        logger.info("Room disconnected, triggering analytics save...")
+        save_analytics_callback()
 
     # Await initial greeting completion, wait 0.8s pause, then enable silence monitoring
     async def finish_greeting():

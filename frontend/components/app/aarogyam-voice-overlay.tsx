@@ -21,7 +21,21 @@ import {
   Loader2,
   HeartPulse,
   X,
-  Volume2
+  Volume2,
+  Brain,
+  Shield,
+  Globe,
+  Check,
+  Copy,
+  Keyboard,
+  Leaf,
+  Heart,
+  Sparkles,
+  Activity,
+  BriefcaseMedical,
+  ShieldAlert,
+  Info,
+  Lock
 } from 'lucide-react';
 import { APP_CONFIG_DEFAULTS } from '@/app-config';
 import { getSandboxTokenSource } from '@/lib/utils';
@@ -31,6 +45,9 @@ import { useLanguage, useAuth } from '@/components/app/providers';
 interface AarogyamVoiceOverlayProps {
   onClose?: () => void;
   isEmbedded?: boolean;
+  onNavigateTab?: (tabName: any) => void;
+  autoStart?: boolean;
+  isFuturistic?: boolean;
 }
 
 interface VoiceStateTranslations {
@@ -104,13 +121,13 @@ const getTranslation = (lang: string): VoiceStateTranslations => {
   return overlayTranslations[lang] || overlayTranslations['English'];
 };
 
-function InnerVoiceOverlay({ onClose, isEmbedded = false }: AarogyamVoiceOverlayProps) {
+function InnerVoiceOverlay({ onClose, isEmbedded = false, onNavigateTab, autoStart = false, isFuturistic = false }: AarogyamVoiceOverlayProps) {
   const session = useSessionContext();
   if (!session) return null;
-  return <InnerVoiceOverlayContent onClose={onClose} isEmbedded={isEmbedded} session={session} />;
+  return <InnerVoiceOverlayContent onClose={onClose} isEmbedded={isEmbedded} onNavigateTab={onNavigateTab} autoStart={autoStart} isFuturistic={isFuturistic} session={session} />;
 }
 
-function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: AarogyamVoiceOverlayProps & { session: any }) {
+function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, autoStart = false, isFuturistic = false, session }: AarogyamVoiceOverlayProps & { session: any }) {
 
   const { state: agentState } = useAgent();
   const { messages } = useSessionMessages(session);
@@ -120,7 +137,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
   const isUserSpeaking = useIsSpeaking(localParticipant);
 
   // States to manage the 5 agent states and re-try flows
-  const [hasStarted, setHasStarted] = useState(false);
+  const [hasStarted, setHasStarted] = useState(autoStart);
   const [hasConnectedOnce, setHasConnectedOnce] = useState(false);
   const [isCallEnded, setIsCallEnded] = useState(false);
 
@@ -132,14 +149,56 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [connectError, setConnectError] = useState<Error | null>(null);
 
-  const tVoice = useMemo(() => getTranslation(language), [language]);
-
   const isConnecting = session.connectionState === 'connecting';
   const isConnected = session.isConnected;
   const connectionFailed = session.connectionState === 'disconnected' && connectError;
 
+  // Embedded Session Info timer states
+  const [sessionDuration, setSessionDuration] = useState(0);
+  const [sessionStartTime, setSessionStartTime] = useState<string>('');
+
+  useEffect(() => {
+    if (autoStart) {
+      startSession();
+    }
+  }, [autoStart]);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isConnected) {
+      setSessionStartTime(new Date().toLocaleString('en-US', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }));
+      setSessionDuration(0);
+      timer = setInterval(() => {
+        setSessionDuration(prev => prev + 1);
+      }, 1000);
+    } else {
+      setSessionDuration(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isConnected]);
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const tVoice = useMemo(() => getTranslation(language), [language]);
+
+  // Get the single latest message for real-time subtitle translation
+  const latestMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+
   // Proactively request and verify mic permission
-  const checkMicPermission = async () => {
+  async function checkMicPermission() {
     setMicState('checking');
     setConnectError(null);
     try {
@@ -169,16 +228,16 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
       console.error('Session start error:', err);
       setConnectError(err instanceof Error ? err : new Error(String(err)));
     }
-  };
+  }
 
-  const startSession = async () => {
+  async function startSession() {
     setHasStarted(true);
     setIsCallEnded(false);
     setHasConnectedOnce(false);
     setConnectError(null);
     setMicState('checking');
     await checkMicPermission();
-  };
+  }
 
   // Publish and enable the microphone track after the engine connects and is stable
   useEffect(() => {
@@ -266,7 +325,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
   }, [messages, mode]);
 
   // Handle Mute/Unmute microphone
-  const toggleMute = () => {
+  function toggleMute() {
     if (session.room) {
       const localAudio = session.room.localParticipant.audioTrackPublications.values().next().value;
       if (localAudio && localAudio.track) {
@@ -282,10 +341,10 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
         setIsMuted(!isMuted);
       }
     }
-  };
+  }
 
   // Send a custom text message via LiveKit
-  const handleSendText = async (e: React.FormEvent) => {
+  async function handleSendText(e: React.FormEvent) {
     e.preventDefault();
     if (!textMessage.trim()) return;
     
@@ -304,18 +363,435 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
     } catch (err) {
       console.warn('Gracefully handled chat send error:', err);
     }
-  };
+  }
 
   // Clean disconnect & transition to Call Ended
-  const handleDisconnect = () => {
+  function handleDisconnect() {
     if (session.room && session.connectionState !== 'disconnected') {
       session.end().catch((err) => console.warn('Clean shutdown on disconnect:', err));
     }
     setIsCallEnded(true);
-  };
+  }
+
+  if (isFuturistic) {
+    let badgeColor = 'bg-slate-800/40 text-slate-400 border-slate-700/50';
+    let statusText = 'Offline';
+    let pulseColor = 'bg-slate-500';
+
+    if (showConnecting || isConnecting) {
+      badgeColor = 'bg-blue-950/40 text-blue-400 border-blue-900/30';
+      statusText = 'Connecting';
+      pulseColor = 'bg-blue-400 animate-pulse';
+    } else if (isConnected) {
+      if (agentState === 'speaking') {
+        badgeColor = 'bg-blue-950/40 text-blue-400 border-blue-900/30';
+        statusText = 'Speaking';
+        pulseColor = 'bg-blue-500 animate-pulse-slow';
+      } else if (agentState === 'thinking') {
+        badgeColor = 'bg-amber-950/40 text-amber-400 border-amber-900/30';
+        statusText = 'Thinking';
+        pulseColor = 'bg-amber-500 animate-pulse';
+      } else if (isUserSpeaking) {
+        badgeColor = 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30';
+        statusText = 'Listening';
+        pulseColor = 'bg-emerald-400 animate-ping';
+      } else {
+        badgeColor = 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30';
+        statusText = 'Listening';
+        pulseColor = 'bg-emerald-500 animate-pulse';
+      }
+    } else if (isCallEnded) {
+      badgeColor = 'bg-rose-950/40 text-rose-400 border-rose-900/30';
+      statusText = 'Ended';
+      pulseColor = 'bg-rose-500';
+    }
+
+    let orbClass = 'bg-slate-700/40 border border-white/10 shadow-none';
+    if (showConnecting || isConnecting) {
+      orbClass = 'bg-cyan-500/20 border border-cyan-400/30 shadow-[0_0_65px_rgba(6,182,212,0.4)] animate-pulse';
+    } else if (isConnected) {
+      if (agentState === 'speaking') {
+        orbClass = 'bg-[#0D9488]/40 border border-teal-400/50 shadow-[0_0_80px_rgba(20,184,166,0.6)] scale-105 animate-orb-glow';
+      } else if (agentState === 'thinking') {
+        orbClass = 'bg-amber-500/20 border border-amber-400/30 shadow-[0_0_60px_rgba(245,158,11,0.4)] scale-100 animate-pulse';
+      } else if (isUserSpeaking) {
+        orbClass = 'bg-emerald-500/30 border border-emerald-400/60 shadow-[0_0_90px_rgba(16,185,129,0.7)] scale-110';
+      } else {
+        orbClass = 'bg-[#059669]/25 border border-emerald-500/30 shadow-[0_0_55px_rgba(16,185,129,0.3)] scale-100';
+      }
+    }
+
+    let promptHeader = "I'm listening...";
+    let promptSub = "You can speak now";
+    if (showConnecting || isConnecting) {
+      promptHeader = "Connecting to Aarogyam...";
+      promptSub = "Please wait while I prepare our conversation";
+    } else if (agentState === 'speaking') {
+      promptHeader = "Aarogyam is speaking";
+      promptSub = "Listen to the response";
+    } else if (agentState === 'thinking') {
+      promptHeader = "Thinking...";
+      promptSub = "Aarogyam is synthesizing response";
+    } else if (isCallEnded) {
+      promptHeader = "Conversation ended";
+      promptSub = "Choose an option below to proceed";
+    }
+
+    const userMessages = messages.filter((m: any) => m.from?.isLocal);
+    const assistantMessages = messages.filter((m: any) => !m.from?.isLocal);
+    const lastUserMsg = userMessages.length > 0 ? userMessages[userMessages.length - 1] : null;
+    const lastAssistantMsg = assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1] : null;
+
+    return (
+      <div className="min-h-screen bg-[#070A13] text-white flex flex-col justify-between overflow-hidden relative font-sans select-none">
+        
+        {/* Background Gradients */}
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-teal-500/5 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-500/5 blur-[120px] pointer-events-none" />
+
+        {/* Header Bar */}
+        <header className="bg-[#0F1424]/40 border-b border-white/5 px-6 py-4 flex items-center justify-between shrink-0 z-30 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/20">
+              <HeartPulse className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-slate-100 leading-tight">Aarogyam AI</p>
+              <p className="text-[10px] text-slate-400 font-semibold tracking-wide uppercase">Voice Health Companion</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {/* Dynamic Status Badge */}
+            <div className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${badgeColor}`}>
+              <span className={`h-2 w-2 rounded-full ${pulseColor}`} />
+              {statusText}
+            </div>
+
+            {/* Header End Call Button */}
+            {hasStarted && !isCallEnded && (
+              <button
+                onClick={handleDisconnect}
+                className="flex items-center gap-1.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white px-4.5 py-1.5 text-xs font-black shadow-md shadow-rose-600/20 transition hover:scale-102 cursor-pointer"
+              >
+                <PhoneOff className="w-3.5 h-3.5" />
+                End Call
+              </button>
+            )}
+          </div>
+        </header>
+
+        {/* Core Layout Grid */}
+        <div className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-8 min-h-0 items-stretch z-10 overflow-y-auto">
+          
+          {/* LEFT: Voice assistant active card */}
+          <div className="lg:col-span-2 bg-[#0F1424]/30 border border-white/5 rounded-[32px] p-8 flex flex-col justify-between backdrop-blur-xl relative overflow-hidden">
+            
+            {/* Card header */}
+            <div className="flex justify-between items-start">
+              <div>
+                <span className="text-[9px] uppercase tracking-widest text-emerald-400 font-black border border-emerald-400/20 bg-emerald-400/5 px-2.5 py-1 rounded-full">AI Voice Studio</span>
+                <h2 className="text-2xl font-black text-slate-100 mt-3">Talk to Aarogyam</h2>
+                <p className="text-xs text-slate-400 font-medium mt-1">Speak naturally in Hindi, Hinglish, or English. I'm here to help.</p>
+              </div>
+            </div>
+
+            {/* Center Area: Voice Orb Visualizer OR Chat Log view */}
+            <div className="flex-1 flex flex-col items-center justify-center py-6 min-h-[360px]">
+              
+              {mode === 'voice' ? (
+                /* Voice Interface Visuals */
+                <div className="flex flex-col items-center justify-center w-full relative">
+                  
+                  {/* Glowing AI Orb with rotating rings */}
+                  <div className="relative flex items-center justify-center h-72 w-72 mb-6">
+                    <div className={`absolute w-64 h-64 rounded-[50%_50%_45%_55%] border transition-all duration-700 animate-[spin_18s_linear_infinite_reverse] ${
+                      agentState === 'speaking' ? 'border-teal-400/10' : 'border-white/5'
+                    }`} />
+                    <div className={`absolute w-56 h-56 rounded-[48%_52%_55%_45%] border transition-all duration-700 animate-[spin_10s_linear_infinite] ${
+                      agentState === 'speaking' ? 'border-teal-400/20' : 'border-white/10'
+                    }`} />
+                    
+                    {/* Core Sphere */}
+                    <div className={`w-36 h-36 rounded-full blur-xs transition-all duration-700 flex items-center justify-center mix-blend-screen animate-pulse-slow ${orbClass}`}>
+                      <HeartPulse className="h-12 w-12 text-white" />
+                    </div>
+                  </div>
+
+                  {/* Active prompt status labels */}
+                  <div className="text-center z-10">
+                    <h3 className="text-lg font-black text-slate-100 tracking-tight">{promptHeader}</h3>
+                    <p className="text-xs text-slate-400 mt-1 font-semibold">{promptSub}</p>
+                  </div>
+
+                  {/* Live Conversation Preview (shows last User / Assistant message) */}
+                  <div className="mt-8 w-full max-w-xl space-y-3 z-10 px-4">
+                    {lastUserMsg && (
+                      <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-left animate-in slide-in-from-bottom duration-300">
+                        <span className="text-[10px] font-black tracking-widest text-emerald-400 uppercase">You</span>
+                        <p className="text-sm text-slate-200 mt-1 font-medium italic font-semibold">"{lastUserMsg.message}"</p>
+                      </div>
+                    )}
+                    {lastAssistantMsg && (
+                      <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-left animate-in slide-in-from-bottom duration-300">
+                        <span className="text-[10px] font-black tracking-widest text-teal-400 uppercase">Aarogyam</span>
+                        <p className="text-sm text-slate-100 mt-1 font-medium leading-relaxed font-semibold">"{lastAssistantMsg.message}"</p>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              ) : (
+                /* Chat logs panel in futuristic theme */
+                <div className="w-full flex-1 flex flex-col justify-between max-h-[380px] bg-black/10 border border-white/5 rounded-2xl overflow-hidden backdrop-blur-md">
+                  <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 [scrollbar-width:thin]">
+                    {messages.length === 0 ? (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-500">
+                        <MessageSquare className="h-10 w-10 text-slate-700 mb-2" />
+                        <p className="text-xs font-bold">No chat transcripts yet</p>
+                      </div>
+                    ) : (
+                      messages.map((msg: any, index: number) => (
+                        <div
+                          key={msg.id || index}
+                          className={`flex flex-col max-w-[85%] ${
+                            msg.from?.isLocal ? 'ml-auto items-end' : 'mr-auto items-start'
+                          }`}
+                        >
+                          <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider mb-0.5">
+                            {msg.from?.isLocal ? 'You' : 'Aarogyam'}
+                          </span>
+                          <div
+                            className={`rounded-2xl px-3.5 py-2.5 text-xs shadow-md leading-relaxed ${
+                              msg.from?.isLocal
+                                ? 'bg-slate-800 text-slate-100 rounded-tr-none border border-slate-700/50'
+                                : 'bg-emerald-600 text-white rounded-tl-none'
+                            }`}
+                          >
+                            {msg.message}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                  <form onSubmit={handleSendText} className="p-3 border-t border-white/5 bg-black/20 flex gap-2">
+                    <input
+                      type="text"
+                      value={textMessage}
+                      onChange={(e) => setTextMessage(e.target.value)}
+                      placeholder="Type a message to Aarogyam..."
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-white/5 bg-white/5 focus:border-emerald-500 focus:outline-none transition text-xs text-white"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!textMessage.trim()}
+                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 transition disabled:opacity-40"
+                    >
+                      <HeartPulse className="h-4 w-4" />
+                    </button>
+                  </form>
+                </div>
+              )}
+
+            </div>
+
+            {/* Bottom session layout indicators */}
+            <div className="flex flex-wrap items-center justify-center gap-3 border-t border-white/5 pt-5 mt-4 shrink-0">
+              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-white/5 bg-white/5 text-[10px] font-bold text-slate-400">
+                <Globe className="w-3.5 h-3.5 text-slate-500" />
+                {language || 'English'}
+              </span>
+              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-white/5 bg-white/5 text-[10px] font-bold text-slate-400">
+                <Brain className="w-3.5 h-3.5 text-slate-500" />
+                Memory On
+              </span>
+              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-white/5 bg-white/5 text-[10px] font-bold text-slate-400">
+                <Shield className="w-3.5 h-3.5 text-slate-500" />
+                Privacy Protected
+              </span>
+              {isConnected && (
+                <span className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-white/5 bg-white/5 text-[10px] font-bold text-slate-400">
+                  <Activity className="w-3.5 h-3.5 text-slate-500" />
+                  {formatDuration(sessionDuration)}
+                </span>
+              )}
+            </div>
+
+          </div>
+
+          {/* RIGHT: Aarogyam Companion side panel */}
+          <div className="space-y-6 flex flex-col justify-start">
+            
+            {/* Card 1: Companion header */}
+            <div className="bg-[#0F1424]/30 border border-white/5 rounded-3xl p-5 backdrop-blur-xl">
+              <h3 className="text-xs font-black text-emerald-400 flex items-center gap-2 border-b border-white/5 pb-3 mb-3 uppercase tracking-wider">
+                <Sparkles className="w-4 h-4" />
+                Aarogyam Companion
+              </h3>
+              <p className="text-xs text-slate-300 leading-normal font-semibold">How can I help you today?</p>
+              
+              {/* Quick Action triggers */}
+              <div className="grid grid-cols-2 gap-2.5 mt-4">
+                <button
+                  onClick={() => onNavigateTab && onNavigateTab('services')}
+                  className="flex items-center justify-start gap-2 p-3 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 transition text-left text-[11px] font-bold text-slate-300 cursor-pointer"
+                >
+                  <BriefcaseMedical className="w-3.5 h-3.5 text-teal-400" />
+                  Find Clinics
+                </button>
+                <button
+                  onClick={() => onNavigateTab && onNavigateTab('tips')}
+                  className="flex items-center justify-start gap-2 p-3 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 transition text-left text-[11px] font-bold text-slate-300 cursor-pointer"
+                >
+                  <Leaf className="w-3.5 h-3.5 text-emerald-400" />
+                  Wellness Tips
+                </button>
+                <button
+                  onClick={() => alert("Triage symptoms helper: Aarogyam voice assistant is active. Speak clearly to outline symptoms, or visit Settings to update profile details.")}
+                  className="flex items-center justify-start gap-2 p-3 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 transition text-left text-[11px] font-bold text-slate-300 cursor-pointer"
+                >
+                  <Heart className="w-3.5 h-3.5 text-rose-400" />
+                  Symptoms Guide
+                </button>
+                <button
+                  onClick={() => onNavigateTab && onNavigateTab('escalations')}
+                  className="flex items-center justify-start gap-2 p-3 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 transition text-left text-[11px] font-bold text-slate-300 cursor-pointer"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                  Human Help
+                </button>
+              </div>
+            </div>
+
+            {/* Card 2: Your Session details */}
+            <div className="bg-[#0F1424]/30 border border-white/5 rounded-3xl p-5 backdrop-blur-xl">
+              <h3 className="text-xs font-black text-slate-300 flex items-center gap-2 border-b border-white/5 pb-3 mb-3 uppercase tracking-wider">
+                <Info className="w-4 h-4" />
+                Your Session
+              </h3>
+              <div className="space-y-2.5 text-xs font-bold text-slate-400">
+                <div className="flex justify-between items-center">
+                  <span>Language</span>
+                  <span className="text-slate-200">{language || 'English'}</span>
+                </div>
+                <div className="flex justify-between items-center border-t border-white/5 pt-2">
+                  <span>Memory</span>
+                  <span className="text-emerald-400 flex items-center gap-1">On</span>
+                </div>
+                <div className="flex justify-between items-center border-t border-white/5 pt-2">
+                  <span>Session Duration</span>
+                  <span className="text-slate-200 font-mono">{formatDuration(sessionDuration)}</span>
+                </div>
+                <div className="flex justify-between items-center border-t border-white/5 pt-2">
+                  <span>Connection</span>
+                  <span className="text-emerald-400">Excellent</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Quick Tip */}
+            <div className="bg-[#0F1424]/30 border border-white/5 rounded-3xl p-5 backdrop-blur-xl">
+              <h3 className="text-xs font-black text-teal-400 flex items-center gap-2 border-b border-white/5 pb-3 mb-3 uppercase tracking-wider">
+                <Sparkles className="w-4 h-4" />
+                Quick Tip
+              </h3>
+              <p className="text-[10px] text-slate-400 leading-relaxed font-semibold">
+                Speak naturally. You can switch between Hindi, Hinglish, and English anytime.
+              </p>
+            </div>
+
+          </div>
+
+        </div>
+
+        {/* BOTTOM CONTROLS & EVENT PANEL */}
+        <footer className="bg-[#0F1424]/20 border-t border-white/5 p-6 backdrop-blur-md z-30 shrink-0">
+          
+          {isCallEnded ? (
+            /* Call Ended Complete View overlay */
+            <div className="max-w-xl mx-auto flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom duration-300">
+              <h4 className="text-base font-black text-rose-400 flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5" />
+                Conversation Completed
+              </h4>
+              <p className="text-xs text-slate-400 mt-1 font-semibold">
+                Call analytics and your conversation details have been updated safely.
+              </p>
+              <div className="flex gap-4 mt-4 w-full">
+                <button
+                  onClick={() => router.push('/dashboard')}
+                  className="flex-1 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 py-3 text-xs font-bold text-slate-300 hover:text-white transition cursor-pointer"
+                >
+                  Back to Dashboard
+                </button>
+                <button
+                  onClick={startSession}
+                  className="flex-1 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 py-3 text-xs font-bold text-white shadow-md shadow-emerald-500/10 transition cursor-pointer"
+                >
+                  Start Another Conversation
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Active Call Controls panel */
+            <div className="max-w-md mx-auto flex items-center justify-between gap-4">
+              
+              {/* Type Toggle button */}
+              <button
+                onClick={() => setMode(mode === 'voice' ? 'chat' : 'voice')}
+                className={`flex flex-col items-center gap-1.5 px-4 py-2 rounded-xl transition cursor-pointer border ${
+                  mode === 'chat'
+                    ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5'
+                    : 'text-slate-400 border-transparent hover:bg-white/5'
+                }`}
+              >
+                <Keyboard className="w-5 h-5 shrink-0" />
+                <span className="text-[10px] font-black tracking-wider uppercase">Type</span>
+              </button>
+
+              {/* End/Start Call prominent toggle */}
+              {!hasStarted ? (
+                <button
+                  onClick={startSession}
+                  className="flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white px-8 py-3 text-xs font-black shadow-md shadow-emerald-500/20 transition hover:scale-102 cursor-pointer"
+                >
+                  <Mic className="w-4 h-4 animate-pulse" />
+                  Start Call
+                </button>
+              ) : (
+                <button
+                  onClick={handleDisconnect}
+                  className="flex items-center gap-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white px-8 py-3 text-xs font-black shadow-md shadow-rose-600/25 transition hover:scale-[1.02] cursor-pointer"
+                >
+                  <PhoneOff className="w-4 h-4" />
+                  End Call
+                </button>
+              )}
+
+              {/* Chat mode Toggle button */}
+              <button
+                onClick={() => setMode(mode === 'chat' ? 'voice' : 'chat')}
+                className={`flex flex-col items-center gap-1.5 px-4 py-2 rounded-xl transition cursor-pointer border ${
+                  mode === 'chat'
+                    ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5'
+                    : 'text-slate-400 border-transparent hover:bg-white/5'
+                }`}
+              >
+                <MessageSquare className="w-5 h-5 shrink-0" />
+                <span className="text-[10px] font-black tracking-wider uppercase">Chat Mode</span>
+              </button>
+
+            </div>
+          )}
+
+        </footer>
+      </div>
+    );
+  }
 
   // 1. STATE: READY (Not started yet)
-  if (!hasStarted) {
+  if (!isEmbedded && !hasStarted) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/98 text-white backdrop-blur-xl animate-in fade-in duration-300">
         <header className="flex items-center justify-between px-6 py-5 border-b border-white/5 bg-black/20">
@@ -367,7 +843,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
 
   // 2. STATE: CONNECTING (Loading/connecting state)
   const showConnecting = hasStarted && !hasConnectedOnce && !isCallEnded && !connectError && micState !== 'denied';
-  if (showConnecting) {
+  if (!isEmbedded && showConnecting) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/98 text-white backdrop-blur-xl animate-in fade-in duration-300">
         <header className="flex items-center justify-between px-6 py-5 border-b border-white/5 bg-black/20">
@@ -411,7 +887,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
   }
 
   // 4. MICROPHONE ACCESS DENIED VIEW
-  if (hasStarted && micState === 'denied') {
+  if (!isEmbedded && hasStarted && micState === 'denied') {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/98 text-white backdrop-blur-xl animate-in fade-in duration-300">
         <header className="flex items-center justify-between px-6 py-5 border-b border-white/5 bg-black/20">
@@ -468,7 +944,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
   }
 
   // CONNECTION FAILURE ERROR STATE
-  if (hasStarted && connectionFailed) {
+  if (!isEmbedded && hasStarted && connectionFailed) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/98 text-white backdrop-blur-xl animate-in fade-in duration-300">
         <header className="flex items-center justify-between px-6 py-5 border-b border-white/5 bg-black/20">
@@ -525,7 +1001,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
   }
 
   // 5. STATE: CALL ENDED
-  if (isCallEnded) {
+  if (!isEmbedded && isCallEnded) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/98 text-white backdrop-blur-xl animate-in fade-in duration-300">
         <header className="flex items-center justify-between px-6 py-5 border-b border-white/5 bg-black/20">
@@ -582,7 +1058,398 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
     );
   }
 
-  // 3 & 4. STATES: LISTENING & SPEAKING (Active session view)
+  // Dynamic layouts for embedded mode
+  if (isEmbedded) {
+    let badgeColor = 'bg-slate-100 text-slate-500';
+    let statusText = 'Offline';
+    let pulseClass = '';
+
+    if (isConnecting) {
+      badgeColor = 'bg-blue-50 text-blue-600 border border-blue-100';
+      statusText = 'Connecting';
+      pulseClass = 'animate-pulse';
+    } else if (isConnected) {
+      if (agentState === 'speaking') {
+        badgeColor = 'bg-blue-50 text-blue-600 border border-blue-100';
+        statusText = 'Speaking';
+        pulseClass = 'animate-pulse-slow';
+      } else if (agentState === 'thinking') {
+        badgeColor = 'bg-amber-50 text-amber-600 border border-amber-100';
+        statusText = 'Thinking';
+        pulseClass = 'animate-pulse';
+      } else if (isUserSpeaking) {
+        badgeColor = 'bg-emerald-50 text-emerald-600 border border-emerald-100';
+        statusText = 'Listening';
+        pulseClass = 'animate-pulse-fast';
+      } else {
+        badgeColor = 'bg-emerald-50 text-emerald-600 border border-emerald-100';
+        statusText = 'Listening';
+        pulseClass = 'animate-pulse';
+      }
+    } else if (isCallEnded) {
+      badgeColor = 'bg-slate-100 text-slate-500 border border-slate-200';
+      statusText = 'Ended';
+    } else if (connectError || micState === 'denied') {
+      badgeColor = 'bg-rose-50 text-rose-600 border border-rose-100';
+      statusText = 'Error';
+    }
+
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1.0fr] gap-6 items-start w-full max-w-[1200px] mx-auto min-h-0 select-none pb-6">
+        {/* LEFT COLUMN: Main Voice Assistant Card */}
+        <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-2xs flex flex-col justify-between h-[580px]">
+          {/* Top Section */}
+          <div className="flex items-start justify-between">
+            <div className="space-y-1">
+              <span className="text-[10px] font-black tracking-wider text-emerald-600 uppercase flex items-center gap-1.5">
+                <Mic className="w-3.5 h-3.5" />
+                Voice Assistant
+              </span>
+              <h2 className="text-xl font-bold text-slate-800">Talk to Aarogyam</h2>
+              <p className="text-xs text-slate-400 font-semibold max-w-md mt-0.5 leading-snug">
+                Speak naturally in English, Hindi, or Hinglish. I'm here to help with your health.
+              </p>
+            </div>
+            
+            {/* Status Badge */}
+            <div className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ${badgeColor}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${
+                statusText === 'Listening' ? 'bg-emerald-500' :
+                statusText === 'Speaking' ? 'bg-blue-500' :
+                statusText === 'Thinking' ? 'bg-amber-500' :
+                statusText === 'Connecting' ? 'bg-cyan-500' :
+                statusText === 'Error' ? 'bg-rose-500' : 'bg-slate-400'
+              } ${pulseClass}`} />
+              {statusText}
+            </div>
+          </div>
+
+          {/* Center Voice/Chat Area */}
+          <div className="flex-1 flex flex-col items-center justify-center py-6 min-h-0 relative">
+            {mode === 'voice' ? (
+              // Voice Visualizer Mode
+              <div className="flex flex-col items-center justify-center space-y-6 w-full">
+                {/* Glowing Rings and Circular Mic Visualizer */}
+                <div className="relative flex items-center justify-center h-48 w-48 shrink-0">
+                  {/* Glowing Rings */}
+                  <div className={`absolute w-44 h-44 rounded-full border transition-all duration-700 ${
+                    agentState === 'speaking' ? 'border-blue-500/10 animate-pulse-ring' :
+                    isUserSpeaking ? 'border-emerald-400/20 animate-pulse-ring-fast' : 'border-slate-100'
+                  }`} />
+                  <div className={`absolute w-36 h-36 rounded-full border transition-all duration-700 ${
+                    agentState === 'speaking' ? 'border-blue-500/20 animate-pulse-ring-fast' :
+                    isUserSpeaking ? 'border-emerald-400/35 animate-pulse-ring-fast' : 'border-slate-50'
+                  }`} />
+
+                  {/* Core Circular Button/Orb */}
+                  <button
+                    onClick={!hasStarted || isCallEnded ? startSession : toggleMute}
+                    disabled={isConnecting}
+                    className={`w-28 h-28 rounded-full flex items-center justify-center text-white transition-all duration-500 shadow-md ${
+                      !hasStarted || isCallEnded ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20 hover:scale-105 cursor-pointer' :
+                      isConnecting ? 'bg-cyan-500 shadow-cyan-500/20 animate-pulse' :
+                      agentState === 'speaking' ? 'bg-blue-600 shadow-[0_0_30px_rgba(37,99,235,0.4)] animate-orb-glow cursor-pointer' :
+                      agentState === 'thinking' ? 'bg-amber-500 shadow-amber-500/20 animate-pulse cursor-pointer' :
+                      isMuted ? 'bg-red-500 shadow-red-500/20 cursor-pointer' :
+                      isUserSpeaking ? 'bg-emerald-500 shadow-[0_0_35px_rgba(16,185,129,0.5)] scale-105 cursor-pointer' :
+                      'bg-[#10B981] shadow-emerald-500/20 cursor-pointer'
+                    }`}
+                  >
+                    {!hasStarted || isCallEnded ? (
+                      <Mic className="w-10 h-10 animate-pulse" />
+                    ) : isConnecting ? (
+                      <Loader2 className="w-10 h-10 animate-spin" />
+                    ) : agentState === 'speaking' ? (
+                      <Volume2 className="w-10 h-10 animate-pulse" />
+                    ) : isMuted ? (
+                      <MicOff className="w-10 h-10" />
+                    ) : (
+                      <div className="flex items-center justify-center gap-1">
+                        {isUserSpeaking || agentState === 'speaking' ? (
+                          <div className="flex items-end gap-1 h-8">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <div
+                                key={i}
+                                className="w-1 bg-white rounded-full animate-waveform"
+                                style={{
+                                  height: '100%',
+                                  animationDelay: `${i * 0.15}s`,
+                                }}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <Mic className="w-10 h-10 opacity-95" />
+                        )}
+                      </div>
+                    )}
+                  </button>
+                </div>
+
+                {/* Subtitle / Interaction text */}
+                <div className="text-center space-y-2 max-w-md px-4 shrink-0">
+                  <h3 className="text-lg font-bold text-slate-800 leading-none">
+                    {!hasStarted ? "Aarogyam is ready" :
+                     isConnecting ? "Connecting..." :
+                     connectError ? "Connection Error" :
+                     micState === 'denied' ? "Microphone Blocked" :
+                     isCallEnded ? "Call Ended" :
+                     agentState === 'speaking' ? "Aarogyam is speaking" :
+                     agentState === 'thinking' ? "Thinking..." :
+                     isUserSpeaking ? "I'm listening..." : "I'm listening..."}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-semibold leading-relaxed">
+                    {!hasStarted ? "Click the microphone button to start the call" :
+                     isConnecting ? "Please wait while we connect your call" :
+                     connectError ? "Failed to connect to Aarogyam" :
+                     micState === 'denied' ? "Please allow microphone access in settings" :
+                     isCallEnded ? "Click below to restart the session" :
+                     agentState === 'speaking' ? (latestMessage ? `"${latestMessage.message}"` : "Responding to your query") :
+                     agentState === 'thinking' ? "Synthesizing safe medical response" :
+                     isUserSpeaking ? (latestMessage ? `"${latestMessage.message}"` : "You can speak now") : "You can speak now"}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              // Chat Feed Mode
+              <div className="w-full h-full flex flex-col min-h-0 bg-slate-50/50 rounded-2xl border border-slate-100 overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 [scrollbar-width:thin]">
+                  {messages.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8 text-center">
+                      <MessageSquare className="h-8 w-8 text-slate-300 mb-2" />
+                      <p className="font-bold text-xs">No chat transcripts yet</p>
+                      <p className="text-[10px] mt-0.5">Start speaking or type a message below</p>
+                    </div>
+                  ) : (
+                    messages.map((msg: any, index: number) => (
+                      <div
+                        key={msg.id || index}
+                        className={`flex flex-col max-w-[85%] ${
+                          msg.from?.isLocal ? 'ml-auto items-end' : 'mr-auto items-start'
+                        }`}
+                      >
+                        <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider mb-0.5">
+                          {msg.from?.isLocal ? 'You' : 'Aarogyam'}
+                        </span>
+                        <div
+                          className={`rounded-2xl px-4 py-2.5 text-xs font-semibold shadow-2xs leading-relaxed ${
+                            msg.from?.isLocal
+                              ? 'bg-slate-900 text-slate-100 rounded-tr-none'
+                              : 'bg-emerald-500 text-white rounded-tl-none'
+                          }`}
+                        >
+                          {msg.message}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  {agentState === 'thinking' && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mr-auto p-1 bg-white border rounded-full animate-pulse px-3">
+                      <Loader2 className="h-3 w-3 animate-spin text-emerald-500" />
+                      Aarogyam is thinking...
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+
+                {/* Inline Text Message Input Form */}
+                <form onSubmit={handleSendText} className="p-3 border-t border-slate-100 bg-white flex gap-2">
+                  <input
+                    type="text"
+                    value={textMessage}
+                    onChange={(e) => setTextMessage(e.target.value)}
+                    placeholder="Type a message to Aarogyam..."
+                    className="flex-1 px-4 py-2 rounded-xl border border-slate-200 focus:border-emerald-500 focus:outline-hidden text-xs font-semibold"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!textMessage.trim()}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#059669] hover:bg-[#047857] text-white transition disabled:opacity-40"
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
+
+          {/* Session Badges */}
+          <div className="flex items-center justify-center gap-2 py-4 border-t border-slate-50">
+            <span className="flex items-center gap-1 px-3 py-1 rounded-full border border-slate-100 bg-slate-50/50 text-[10px] font-bold text-slate-500">
+              <Globe className="w-3.5 h-3.5 text-slate-400" />
+              {language || 'English'}
+            </span>
+            <span className="flex items-center gap-1 px-3 py-1 rounded-full border border-slate-100 bg-slate-50/50 text-[10px] font-bold text-slate-500">
+              <Brain className="w-3.5 h-3.5 text-slate-400" />
+              Memory On
+            </span>
+            <span className="flex items-center gap-1 px-3 py-1 rounded-full border border-slate-100 bg-slate-50/50 text-[10px] font-bold text-slate-500">
+              <Shield className="w-3.5 h-3.5 text-slate-400" />
+              Safe & Private
+            </span>
+          </div>
+
+          {/* Bottom Controls */}
+          <div className="bg-[#FAFBFB] rounded-2xl p-4 flex items-center justify-between border border-slate-100/50 shrink-0">
+            {/* Type Toggle Button */}
+            <button
+              onClick={() => {
+                setMode(mode === 'voice' ? 'chat' : 'voice');
+              }}
+              className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition cursor-pointer ${
+                mode === 'chat' ? 'text-emerald-600 bg-emerald-50/50' : 'text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              <Keyboard className="w-5 h-5 shrink-0" />
+              <span className="text-[10px] font-bold">Type</span>
+            </button>
+
+            {/* End Call / Start Call Button */}
+            {!hasStarted || isCallEnded ? (
+              <button
+                onClick={startSession}
+                className="flex items-center gap-2 rounded-full bg-[#059669] hover:bg-[#047857] text-white px-6 py-2.5 text-xs font-black shadow-md shadow-emerald-500/25 transition hover:scale-102 cursor-pointer"
+              >
+                <Mic className="w-4 h-4" />
+                Start Call
+              </button>
+            ) : (
+              <button
+                onClick={handleDisconnect}
+                className="flex items-center gap-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white px-6 py-2.5 text-xs font-black shadow-md shadow-rose-600/25 transition hover:scale-102 cursor-pointer"
+              >
+                <PhoneOff className="w-4 h-4" />
+                End Call
+              </button>
+            )}
+
+            {/* Chat Mode Toggle Button */}
+            <button
+              onClick={() => {
+                setMode(mode === 'chat' ? 'voice' : 'chat');
+              }}
+              className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition cursor-pointer ${
+                mode === 'chat' ? 'text-emerald-600 bg-emerald-50/50' : 'text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              <MessageSquare className="w-5 h-5 shrink-0" />
+              <span className="text-[10px] font-bold">Chat Mode</span>
+            </button>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: Supporting Cards */}
+        <div className="space-y-6 flex flex-col justify-start">
+          {/* Card 1: Aarogyam Tips */}
+          <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs">
+            <h3 className="text-xs font-extrabold text-[#059669] flex items-center gap-2 border-b border-slate-50 pb-3 mb-3">
+              <Sparkles className="w-4 h-4" />
+              Aarogyam Tips
+            </h3>
+            <ul className="space-y-2.5">
+              <li className="flex items-start gap-2.5 text-xs font-semibold text-slate-500 leading-normal">
+                <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                Speak clearly for better understanding
+              </li>
+              <li className="flex items-start gap-2.5 text-xs font-semibold text-slate-500 leading-normal">
+                <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                You can switch between languages
+              </li>
+              <li className="flex items-start gap-2.5 text-xs font-semibold text-slate-500 leading-normal">
+                <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                All conversations are private and secure
+              </li>
+              <li className="flex items-start gap-2.5 text-xs font-semibold text-slate-500 leading-normal">
+                <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                I can help with symptoms, clinics, and wellness
+              </li>
+            </ul>
+          </div>
+
+          {/* Card 2: Quick Actions */}
+          <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs">
+            <h3 className="text-xs font-extrabold text-blue-600 flex items-center gap-2 border-b border-slate-50 pb-3 mb-3">
+              <Activity className="w-4 h-4" />
+              Quick Actions
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => onNavigateTab && onNavigateTab('services')}
+                className="flex items-center justify-start gap-2 p-3 rounded-2xl border border-slate-100 hover:bg-slate-50 transition text-left text-xs font-bold text-slate-700 bg-[#FCFDFE] cursor-pointer"
+              >
+                <BriefcaseMedical className="w-4 h-4 text-emerald-500 shrink-0" />
+                Find Clinics
+              </button>
+              <button
+                onClick={() => onNavigateTab && onNavigateTab('tips')}
+                className="flex items-center justify-start gap-2 p-3 rounded-2xl border border-slate-100 hover:bg-slate-50 transition text-left text-xs font-bold text-slate-700 bg-[#FCFDFE] cursor-pointer"
+              >
+                <Leaf className="w-4 h-4 text-emerald-500 shrink-0" />
+                Health Tips
+              </button>
+              <button
+                onClick={() => alert("Aarogyam AI: Speak naturally to describe your symptoms. For serious chest pain, breathing difficulty, or high fever, seek emergency hospital care immediately.")}
+                className="flex items-center justify-start gap-2 p-3 rounded-2xl border border-slate-100 hover:bg-slate-50 transition text-left text-xs font-bold text-slate-700 bg-[#FCFDFE] cursor-pointer"
+              >
+                <Heart className="w-4 h-4 text-rose-500 shrink-0" />
+                Symptoms Guide
+              </button>
+              <button
+                onClick={() => onNavigateTab && onNavigateTab('escalations')}
+                className="flex items-center justify-start gap-2 p-3 rounded-2xl border border-slate-100 hover:bg-[#FFF5F5] hover:border-red-200 transition text-left text-xs font-bold text-red-600 bg-[#FFFDFD] cursor-pointer"
+              >
+                <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
+                Emergency Help
+              </button>
+            </div>
+          </div>
+
+          {/* Card 3: Session Info */}
+          <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs">
+            <h3 className="text-xs font-extrabold text-slate-500 flex items-center gap-2 border-b border-slate-50 pb-3 mb-3">
+              <Info className="w-4 h-4" />
+              Session Info
+            </h3>
+            <div className="space-y-3 text-xs font-bold text-slate-600">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Session ID</span>
+                <span className="font-mono text-[10px] text-slate-700 flex items-center gap-1">
+                  {session.room?.name ? `${session.room.name.substring(0, 8)}...` : 'Not active'}
+                  {session.room?.name && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(session.room.name);
+                        alert('Session ID copied to clipboard!');
+                      }}
+                      className="p-1 hover:bg-slate-100 rounded text-slate-400 cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between items-center border-t border-slate-50 pt-2.5">
+                <span className="text-slate-400">Started At</span>
+                <span className="text-slate-700">{sessionStartTime || 'Not active'}</span>
+              </div>
+              <div className="flex justify-between items-center border-t border-slate-50 pt-2.5">
+                <span className="text-slate-400">Duration</span>
+                <span className="text-slate-700 font-mono">{formatDuration(sessionDuration)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Privacy Notice banner centered */}
+        <div className="lg:col-span-2 text-center text-[10px] text-slate-400 font-semibold flex items-center justify-center gap-1.5 pt-4">
+          <Lock className="w-3.5 h-3.5 text-slate-300" />
+          Aarogyam AI may make mistakes. Please verify important information.
+        </div>
+      </div>
+    );
+  }
+
+  // 3 & 4. STATES: LISTENING & SPEAKING (Active session view for non-embedded layout)
   let orbClass = 'bg-slate-500 shadow-slate-500/30';
   let statusText = tVoice.connecting;
   
@@ -605,11 +1472,8 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
     }
   }
 
-  // Get the single latest message for real-time subtitle translation
-  const latestMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-
   return (
-    <div className={isEmbedded ? "relative flex flex-col w-full h-[650px] bg-slate-950 text-white rounded-3xl overflow-hidden border border-slate-900 shadow-xl" : "fixed inset-0 z-50 flex flex-col bg-slate-950/98 text-white backdrop-blur-xl animate-in fade-in duration-300"}>
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/98 text-white backdrop-blur-xl animate-in fade-in duration-300">
       
       {/* Header Bar */}
       <header className="flex items-center justify-between px-6 py-5 border-b border-white/5 bg-black/20 z-10">
@@ -642,7 +1506,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
             <MessageSquare className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">{mode === 'voice' ? 'Chat Mode' : 'Voice Mode'}</span>
           </button>
-          {!isEmbedded && onClose && (
+          {onClose && (
             <button
               onClick={onClose}
               className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition cursor-pointer"
@@ -712,7 +1576,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
                     className="w-1 bg-gradient-to-t from-blue-500 to-cyan-400 rounded-full animate-waveform"
                     style={{
                       height: '100%',
-                      animationDelay: `${i * 0.1}s`,
+                      animationDelay: `${i * 0.15}s`,
                     }}
                   />
                 ))}
@@ -827,7 +1691,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, session }: Aaro
   );
 }
 
-export function AarogyamVoiceOverlay({ onClose, isEmbedded = false }: AarogyamVoiceOverlayProps) {
+export function AarogyamVoiceOverlay({ onClose, isEmbedded = false, onNavigateTab }: AarogyamVoiceOverlayProps) {
   const tokenSource = useMemo(() => {
     if (typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string') {
       return getSandboxTokenSource(APP_CONFIG_DEFAULTS);
@@ -934,7 +1798,7 @@ export function AarogyamVoiceOverlay({ onClose, isEmbedded = false }: AarogyamVo
           animation: aarogyam-pulse-ring-fast 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
       `}</style>
-      <InnerVoiceOverlay onClose={onClose} isEmbedded={isEmbedded} />
+      <InnerVoiceOverlay onClose={onClose} isEmbedded={isEmbedded} onNavigateTab={onNavigateTab} />
       <RoomAudioRenderer />
     </AgentSessionProvider>
   );

@@ -182,7 +182,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
 
   // Tab state driven by query parameter where possible
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'talk' | 'history' | 'services' | 'escalations' | 'reminders' | 'tips' | 'profile' | 'settings' | 'privacy'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'talk' | 'history' | 'services' | 'escalations' | 'reminders' | 'tips' | 'profile' | 'settings' | 'privacy' | 'analytics'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
 
@@ -216,6 +216,44 @@ function DashboardContent() {
   const [newReminderTime, setNewReminderTime] = useState('');
   const [newReminderType, setNewReminderType] = useState<'health' | 'activity' | 'appointment'>('health');
   
+  // Call Analytics State
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState('');
+  
+  // Call Analytics Filters
+  const [analyticsFilterLang, setAnalyticsFilterLang] = useState('');
+  const [analyticsFilterChan, setAnalyticsFilterChan] = useState('');
+  const [analyticsFilterOutcome, setAnalyticsFilterOutcome] = useState('');
+  const [analyticsFilterDateFrom, setAnalyticsFilterDateFrom] = useState('');
+  const [analyticsFilterDateTo, setAnalyticsFilterDateTo] = useState('');
+
+  const fetchAnalytics = async () => {
+    setIsAnalyticsLoading(true);
+    setAnalyticsError('');
+    try {
+      const queryParams = new URLSearchParams();
+      if (analyticsFilterLang) queryParams.append('language', analyticsFilterLang);
+      if (analyticsFilterChan) queryParams.append('channel', analyticsFilterChan);
+      if (analyticsFilterOutcome) queryParams.append('outcome', analyticsFilterOutcome);
+      if (analyticsFilterDateFrom) queryParams.append('dateFrom', analyticsFilterDateFrom);
+      if (analyticsFilterDateTo) queryParams.append('dateTo', analyticsFilterDateTo);
+
+      const res = await fetch(`/api/analytics?${queryParams.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAnalyticsData(data);
+      } else {
+        setAnalyticsError('Failed to fetch call analytics.');
+      }
+    } catch (e) {
+      console.error(e);
+      setAnalyticsError('Network error while loading analytics.');
+    } finally {
+      setIsAnalyticsLoading(false);
+    }
+  };
+
   // History Filter
   const [historyFilter, setHistoryFilter] = useState<'all' | 'today' | 'week' | 'escalated'>('all');
 
@@ -223,11 +261,20 @@ function DashboardContent() {
   useEffect(() => {
     if (searchParams) {
       const tab = searchParams.get('tab');
-      if (tab && ['dashboard', 'talk', 'history', 'services', 'escalations', 'reminders', 'tips', 'profile', 'settings', 'privacy'].includes(tab)) {
-        setActiveTab(tab as any);
+      if (tab && ['dashboard', 'talk', 'history', 'services', 'escalations', 'reminders', 'tips', 'profile', 'settings', 'privacy', 'analytics'].includes(tab)) {
+        if (tab === 'talk') {
+          router.push('/talk-to-aarogyam');
+        } else {
+          setActiveTab(tab as any);
+        }
+      } else {
+        const voice = searchParams.get('voice');
+        if (voice === 'true') {
+          router.push('/talk-to-aarogyam');
+        }
       }
     }
-  }, [searchParams]);
+  }, [searchParams, router]);
 
   // Load Conversations
   useEffect(() => {
@@ -289,7 +336,10 @@ function DashboardContent() {
     if (activeTab === 'profile') {
       fetchProfileMemory();
     }
-  }, [activeTab, user]);
+    if (activeTab === 'analytics') {
+      fetchAnalytics();
+    }
+  }, [activeTab, user, analyticsFilterLang, analyticsFilterChan, analyticsFilterOutcome, analyticsFilterDateFrom, analyticsFilterDateTo]);
 
   const handleClearSavedMemory = async () => {
     if (!user) return;
@@ -471,6 +521,11 @@ function DashboardContent() {
   const activeEscalationsCount = escalationsList.filter(e => e.status.toLowerCase() === 'open').length;
 
   const navigateToTab = (tabName: typeof activeTab) => {
+    if (tabName === 'talk') {
+      router.push('/talk-to-aarogyam');
+      setIsSidebarOpen(false);
+      return;
+    }
     setActiveTab(tabName);
     router.push(`/dashboard?tab=${tabName}`);
     setIsSidebarOpen(false);
@@ -590,6 +645,18 @@ function DashboardContent() {
             <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white">
               {activeEscalationsCount || 1}
             </span>
+          </button>
+
+          <button
+            onClick={() => navigateToTab('analytics')}
+            className={`flex w-full items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+              activeTab === 'analytics'
+                ? 'bg-emerald-50/70 text-emerald-600'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+            }`}
+          >
+            <Activity className="h-4 w-4 shrink-0" />
+            <span>Call Analytics</span>
           </button>
 
           <button
@@ -964,27 +1031,6 @@ function DashboardContent() {
               {/* copyright info */}
               <div className="text-center text-[10px] text-slate-400 font-semibold tracking-wide">
                 © 2026 Aarogyam AI. All rights reserved. <span className="text-rose-400">❤</span>
-              </div>
-            </div>
-          )}
-
-          {/* ==================================================
-              TAB VIEW 2: TALK TO AAROGYAM
-              ================================================== */}
-          {activeTab === 'talk' && (
-            <div className="space-y-6 max-w-4xl mx-auto animate-in fade-in duration-300">
-              <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-2xs">
-                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <Mic className="text-emerald-500" />
-                  Speak to Aarogyam
-                </h2>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Start your voice health assistant. Speak naturally in English, Hindi, or Hinglish to describe symptoms or find clinics.
-                </p>
-              </div>
-
-              <div className="overflow-hidden rounded-3xl bg-slate-950 shadow-2xl border border-slate-900">
-                <AarogyamVoiceOverlay isEmbedded={true} />
               </div>
             </div>
           )}
@@ -1636,6 +1682,285 @@ function DashboardContent() {
                   </p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ==================================================
+              TAB VIEW 11: CALL ANALYTICS
+              ================================================== */}
+          {activeTab === 'analytics' && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              {/* Header Card */}
+              <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Activity className="text-emerald-500" />
+                    Call Analytics Dashboard
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">Real-time stats from actual Aarogyam voice conversations</p>
+                </div>
+                <button
+                  onClick={fetchAnalytics}
+                  disabled={isAnalyticsLoading}
+                  className="self-start sm:self-center flex items-center gap-2 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2 text-xs font-bold transition shadow-md shadow-emerald-500/20 disabled:opacity-50 cursor-pointer"
+                >
+                  {isAnalyticsLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                  ) : (
+                    <Activity className="w-4 h-4 shrink-0" />
+                  )}
+                  Refresh Data
+                </button>
+              </div>
+
+              {/* Filters */}
+              <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs">
+                <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider mb-4">Filters</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Language</label>
+                    <select
+                      value={analyticsFilterLang}
+                      onChange={(e) => setAnalyticsFilterLang(e.target.value)}
+                      className="w-full mt-1.5 rounded-xl border border-slate-100 bg-slate-50/50 px-3.5 py-2 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-hidden"
+                    >
+                      <option value="">All Languages</option>
+                      <option value="English">English</option>
+                      <option value="Hindi">Hindi</option>
+                      <option value="Hinglish">Hinglish</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Channel</label>
+                    <select
+                      value={analyticsFilterChan}
+                      onChange={(e) => setAnalyticsFilterChan(e.target.value)}
+                      className="w-full mt-1.5 rounded-xl border border-slate-100 bg-slate-50/50 px-3.5 py-2 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-hidden"
+                    >
+                      <option value="">All Channels</option>
+                      <option value="browser">Browser</option>
+                      <option value="sip">SIP (Outbound)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Outcome</label>
+                    <select
+                      value={analyticsFilterOutcome}
+                      onChange={(e) => setAnalyticsFilterOutcome(e.target.value)}
+                      className="w-full mt-1.5 rounded-xl border border-slate-100 bg-slate-50/50 px-3.5 py-2 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-hidden"
+                    >
+                      <option value="">All Outcomes</option>
+                      <option value="successful">Successful</option>
+                      <option value="failed">Failed</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">From Date</label>
+                    <input
+                      type="date"
+                      value={analyticsFilterDateFrom}
+                      onChange={(e) => setAnalyticsFilterDateFrom(e.target.value)}
+                      className="w-full mt-1.5 rounded-xl border border-slate-100 bg-slate-50/50 px-3.5 py-2 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-hidden"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">To Date</label>
+                    <input
+                      type="date"
+                      value={analyticsFilterDateTo}
+                      onChange={(e) => setAnalyticsFilterDateTo(e.target.value)}
+                      className="w-full mt-1.5 rounded-xl border border-slate-100 bg-slate-50/50 px-3.5 py-2 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Error State */}
+              {analyticsError && (
+                <div className="bg-rose-50 border border-rose-100 text-rose-700 text-xs font-semibold rounded-2xl p-4">
+                  {analyticsError}
+                </div>
+              )}
+
+              {/* Stats Cards Grid */}
+              {isAnalyticsLoading && !analyticsData ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs animate-pulse space-y-3">
+                      <div className="h-6 w-12 bg-slate-100 rounded-lg" />
+                      <div className="h-4 w-24 bg-slate-100 rounded-lg" />
+                    </div>
+                  ))}
+                </div>
+              ) : analyticsData ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    {/* Total Calls */}
+                    <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs hover:shadow-xs transition duration-200">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-500 shrink-0">
+                          <Activity className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-2xl font-black text-slate-800 leading-none">{analyticsData.total_calls}</h3>
+                          <p className="text-xs font-extrabold text-slate-700 mt-1">Total Calls</p>
+                          <p className="text-[10px] text-slate-400 font-semibold">Overall volume</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Successful Calls */}
+                    <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs hover:shadow-xs transition duration-200">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-500 shrink-0">
+                          <CheckCircle className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-2xl font-black text-slate-800 leading-none">{analyticsData.successful_calls}</h3>
+                          <p className="text-xs font-extrabold text-slate-700 mt-1">Successful Calls</p>
+                          <p className="text-[10px] text-slate-400 font-semibold">Requests resolved</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Failed Calls */}
+                    <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs hover:shadow-xs transition duration-200">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-rose-50 flex items-center justify-center text-rose-500 shrink-0">
+                          <X className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-2xl font-black text-slate-800 leading-none">{analyticsData.failed_calls}</h3>
+                          <p className="text-xs font-extrabold text-slate-700 mt-1">Failed Calls</p>
+                          <p className="text-[10px] text-slate-400 font-semibold">Unresolved or dropped</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Success Rate */}
+                    <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs hover:shadow-xs transition duration-200">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-orange-50 flex items-center justify-center text-orange-500 shrink-0">
+                          <HeartPulse className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-2xl font-black text-slate-800 leading-none">{analyticsData.success_rate}%</h3>
+                          <p className="text-xs font-extrabold text-slate-700 mt-1">Success Rate</p>
+                          <p className="text-[10px] text-slate-400 font-semibold">Safe fulfillment ratio</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Distribution Info & Recent Calls */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Left Panel: Distributions */}
+                    <div className="space-y-6">
+                      {/* Language Distribution */}
+                      <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs space-y-4">
+                        <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Languages</h3>
+                        <div className="space-y-3 flex flex-col">
+                          {Object.keys(analyticsData.calls_by_language).length === 0 ? (
+                            <p className="text-xs font-semibold text-slate-400">No language data available</p>
+                          ) : (
+                            Object.entries(analyticsData.calls_by_language).map(([lang, count]: any) => (
+                              <div key={lang} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0">
+                                <span className="text-xs font-bold text-slate-600">{lang}</span>
+                                <span className="bg-slate-50 px-2.5 py-0.5 rounded-full text-xs font-bold text-slate-700">{count} calls</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Channel Distribution */}
+                      <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs space-y-4">
+                        <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Channels</h3>
+                        <div className="space-y-3 flex flex-col">
+                          {Object.keys(analyticsData.calls_by_channel).length === 0 ? (
+                            <p className="text-xs font-semibold text-slate-400">No channel data available</p>
+                          ) : (
+                            Object.entries(analyticsData.calls_by_channel).map(([chan, count]: any) => (
+                              <div key={chan} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0">
+                                <span className="text-xs font-bold text-slate-600 capitalize">
+                                  {chan === 'sip' ? 'SIP (Outbound)' : 'Browser'}
+                                </span>
+                                <span className="bg-slate-50 px-2.5 py-0.5 rounded-full text-xs font-bold text-slate-700">{count} calls</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right Panel: Recent Calls Table */}
+                    <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-100 p-5 shadow-2xs flex flex-col">
+                      <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider mb-4">Recent Conversations</h3>
+                      <div className="flex-1 overflow-x-auto min-h-[300px]">
+                        {analyticsData.recent_calls.length === 0 ? (
+                          <div className="h-full flex items-center justify-center text-xs font-bold text-slate-400 py-10">
+                            No call analytics available yet.
+                          </div>
+                        ) : (
+                          <table className="w-full text-left text-xs text-slate-600 font-semibold leading-normal">
+                            <thead>
+                              <tr className="border-b border-slate-50 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                <th className="pb-3">Date/Time</th>
+                                <th className="pb-3">Duration</th>
+                                <th className="pb-3">Channel</th>
+                                <th className="pb-3">Language</th>
+                                <th className="pb-3">Outcome</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {analyticsData.recent_calls.map((call: any, idx: number) => {
+                                const date = new Date(call.started_at);
+                                const dateString = date.toLocaleDateString('en-GB', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                }) + ' | ' + date.toLocaleTimeString('en-US', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: true
+                                });
+
+                                const minutes = Math.floor(call.duration_seconds / 60);
+                                const seconds = Math.floor(call.duration_seconds % 60);
+                                const durationString = `${minutes}m ${seconds}s`;
+
+                                return (
+                                  <tr key={idx} className="border-b border-slate-50/50 hover:bg-slate-50/40">
+                                    <td className="py-3 text-slate-800">{dateString}</td>
+                                    <td className="py-3">{durationString}</td>
+                                    <td className="py-3 capitalize">{call.channel === 'sip' ? 'SIP' : 'Browser'}</td>
+                                    <td className="py-3">{call.language}</td>
+                                    <td className="py-3">
+                                      <span
+                                        className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                          call.outcome === 'successful'
+                                            ? 'bg-emerald-50 text-emerald-600'
+                                            : 'bg-rose-50 text-rose-600'
+                                        }`}
+                                      >
+                                        {call.outcome}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-2xs text-center text-xs font-bold text-slate-400">
+                  No call analytics available yet.
+                </div>
+              )}
             </div>
           )}
 
