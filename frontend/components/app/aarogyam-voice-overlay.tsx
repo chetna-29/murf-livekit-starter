@@ -129,7 +129,8 @@ function InnerVoiceOverlay({ onClose, isEmbedded = false, onNavigateTab, autoSta
 
 function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, autoStart = false, isFuturistic = false, session }: AarogyamVoiceOverlayProps & { session: any }) {
 
-  const { state: agentState } = useAgent();
+  const agent = useAgent();
+  const agentState = agent.state;
   const { messages } = useSessionMessages(session);
   const { language } = useLanguage();
   const { user } = useAuth();
@@ -377,28 +378,39 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
     let badgeColor = 'bg-slate-800/40 text-slate-400 border-slate-700/50';
     let statusText = 'Offline';
     let pulseColor = 'bg-slate-500';
+    const agentRole = agent?.attributes?.agent_role || 'main_agent';
 
     if (showConnecting || isConnecting) {
       badgeColor = 'bg-blue-950/40 text-blue-400 border-blue-900/30';
       statusText = 'Connecting';
       pulseColor = 'bg-blue-400 animate-pulse';
     } else if (isConnected) {
-      if (agentState === 'speaking') {
-        badgeColor = 'bg-blue-950/40 text-blue-400 border-blue-900/30';
-        statusText = 'Speaking';
-        pulseColor = 'bg-blue-500 animate-pulse-slow';
-      } else if (agentState === 'thinking') {
+      if (agentRole === 'clinic_specialist_connecting') {
         badgeColor = 'bg-amber-950/40 text-amber-400 border-amber-900/30';
-        statusText = 'Thinking';
+        statusText = 'Connecting to specialist...';
         pulseColor = 'bg-amber-500 animate-pulse';
-      } else if (isUserSpeaking) {
-        badgeColor = 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30';
-        statusText = 'Listening';
-        pulseColor = 'bg-emerald-400 animate-ping';
+      } else if (agentRole === 'main_agent_connecting') {
+        badgeColor = 'bg-amber-950/40 text-amber-400 border-amber-900/30';
+        statusText = 'Connecting to Aarogyam...';
+        pulseColor = 'bg-amber-500 animate-pulse';
       } else {
-        badgeColor = 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30';
-        statusText = 'Listening';
-        pulseColor = 'bg-emerald-500 animate-pulse';
+        if (agentState === 'speaking') {
+          badgeColor = 'bg-blue-950/40 text-blue-400 border-blue-900/30';
+          statusText = agentRole === 'clinic_specialist' ? 'Specialist Speaking' : 'Speaking';
+          pulseColor = 'bg-blue-500 animate-pulse-slow';
+        } else if (agentState === 'thinking') {
+          badgeColor = 'bg-amber-950/40 text-amber-400 border-amber-900/30';
+          statusText = agentRole === 'clinic_specialist' ? 'Specialist Thinking' : 'Thinking';
+          pulseColor = 'bg-amber-500 animate-pulse';
+        } else if (isUserSpeaking) {
+          badgeColor = 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30';
+          statusText = agentRole === 'clinic_specialist' ? 'Specialist Listening' : 'Listening';
+          pulseColor = 'bg-emerald-400 animate-ping';
+        } else {
+          badgeColor = 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30';
+          statusText = agentRole === 'clinic_specialist' ? 'Specialist Connected' : 'Listening';
+          pulseColor = 'bg-emerald-500 animate-pulse';
+        }
       }
     } else if (isCallEnded) {
       badgeColor = 'bg-rose-950/40 text-rose-400 border-rose-900/30';
@@ -428,13 +440,24 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
       promptSub = "Please wait while I prepare our conversation";
     } else if (agentState === 'speaking') {
       promptHeader = "Aarogyam is speaking";
-      promptSub = "Listen to the response";
+      promptSub = agentRole === 'clinic_specialist' ? "Connected to Clinic & Appointment Specialist" : "Listen to the response";
     } else if (agentState === 'thinking') {
       promptHeader = "Thinking...";
-      promptSub = "Aarogyam is synthesizing response";
+      promptSub = agentRole === 'clinic_specialist' ? "Connected to Clinic & Appointment Specialist" : "Aarogyam is synthesizing response";
     } else if (isCallEnded) {
       promptHeader = "Conversation ended";
       promptSub = "Choose an option below to proceed";
+    } else {
+      if (agentRole === 'clinic_specialist_connecting') {
+        promptHeader = "Connecting you to a clinic specialist...";
+        promptSub = "Please wait...";
+      } else if (agentRole === 'clinic_specialist') {
+        promptHeader = "I'm listening...";
+        promptSub = "Connected to Clinic & Appointment Specialist";
+      } else if (agentRole === 'main_agent_connecting') {
+        promptHeader = "Connecting back to Aarogyam...";
+        promptSub = "Please wait...";
+      }
     }
 
     const userMessages = messages.filter((m: any) => m.from?.isLocal);

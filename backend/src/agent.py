@@ -22,6 +22,7 @@ from livekit.agents import (
     function_tool,
     RunContext,
     UserInputTranscribedEvent,
+    llm,
 )
 
 try:
@@ -144,20 +145,8 @@ def get_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -
         f"  - Do NOT treat silence, uncertainty, or unrelated responses as consent.\n"
         f"  - Do NOT store or send: passwords, OTPs, PINs, account numbers, unnecessary private information, or the complete conversation transcript in the tools.\n"
         f"  - Normal conversations (non-escalation situations) must NOT call `create_escalation`.\n"
-        f"HEALTHCARE FACILITY LOOKUP:\n"
-        f"- You can search for nearby hospitals, clinics, and doctors using the `lookup_healthcare_facilities` tool.\n"
-        f"- If the user asks for a healthcare facility 'near me', 'nearby', 'closest', 'nearest', or otherwise asks for a facility without specifying a location name:\n"
-        f"  1. First check the wellness facts returned by `lookup_caller` in the conversation history.\n"
-        f"  2. If a general location (e.g. city/district/area like 'lives in Jaipur' or 'district is Dehradun') is clearly present in the saved facts, extract it and call `lookup_healthcare_facilities` directly with that location name. Do NOT ask the user for a location that is already saved in memory.\n"
-        f"  3. If no general location is saved in memory, verbally prompt the user for their city, area, or district first (e.g., {no_location_prompt}).\n"
-        f"- If the user explicitly specifies a location in the current message (e.g. 'Find a clinic in Dehradun'), ALWAYS prioritize and use that explicit location over the saved location from memory.\n"
-        f"- You MUST NOT call the `lookup_healthcare_facilities` tool if you do not know the user's target location (from either the current query or the saved facts).\n"
-        f"- Never use precise location data (exact coordinates, exact addresses) for the lookup; only search for general cities, districts, or areas.\n"
-        f"- If the target location (whether from query or memory) is ambiguous, phonetically garbled, or unclear (e.g. 'Por de era dum'), you must NOT call the tool. Instead, ask the user to confirm/clarify (e.g., {lookup_unclear_prompt}). Only after they confirm should you invoke the tool.\n"
-        f"- When responding after a healthcare facility tool call, treat the tool response's `session_language` field as authoritative for the response language. Do not infer the response language from facility names, location names, JSON content, or tool responses. If `session_language` is English, respond entirely in English. If it is Hinglish, respond in Hinglish. If it is Hindi, respond in Hindi.\n"
-        f"- After a successful lookup, summarize only the top 2 to 3 facilities. Mention the location searched, and clearly attribute the information to OpenStreetMap contributors. Tell the user to verify availability or hours before visiting. Do NOT claim the data is government-certified.\n"
-        f"- If the lookup fails, state: {failure_prompt}.\n"
-        f"- Do NOT invent, guess, or fabricate facility names, addresses, or hours.\n"
+        f"HEALTHCARE FACILITY & APPOINTMENT LOOKUP (SPECIALIST HANDOFF):\n"
+        f"- Whenever the user wants to find healthcare facilities, hospitals, clinics, nearby healthcare services, ask for facility details, or ask appointment-related questions, you MUST call the `handoff_to_clinic_specialist` tool immediately to transfer them to the specialist. Do NOT handle facility lookup or appointment tasks directly. You MUST announce the connection first in your response (e.g., 'I\\'ll connect you with our clinic and appointment specialist so they can help you with that.').\n"
         f"{sip_instruction}"
         f"Style: Max 2-3 short sentences. NEVER use markdown (no * or **, lists, or bullet points). Use simple conversational language without medical jargon.\n"
         f"First Response: If no assistant greeting or message has been spoken yet in the conversation history, greet the user warmly. Otherwise, if a greeting was already spoken, do NOT greet or introduce yourself again; start directly by acknowledging their query."
@@ -177,6 +166,105 @@ def update_assistant_prompt(assistant, lang: str) -> None:
         for item in assistant._chat_ctx._items:
             if hasattr(item, "role") and item.role == "system":
                 item.content = new_prompt
+
+
+def get_specialist_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -> str:
+    if lang == "English":
+        lang_instruction = "Language: You MUST respond and speak ENTIRELY in English. Do NOT use any Hindi, Hinglish, or Devanagari words under any circumstances."
+        intro = "Hi, I'm Aarogyam's clinic and appointment specialist. I can help you find healthcare facilities and understand your appointment options."
+        examples = (
+            "Examples:\n"
+            "- User: 'I need a clinic near me.' -> Reply: 'I can help you find a suitable clinic. What location should I search around?'\n"
+            "- User: 'How do I book an appointment?' -> Reply: 'I can guide you with appointment booking options. Which facility are you looking to book?'"
+        )
+        escalation_consent_example = (
+            "'Your symptoms might be serious / I cannot diagnose medical conditions. I can create a human healthcare support request for you. "
+            "Would you like me to proceed?'"
+        )
+        lookup_unclear_prompt = "'I heard Ponda, Goa. Is that what you meant?'"
+        no_location_prompt = "'Which city, area, or district should I search?'"
+        failure_prompt = "'I\\'m unable to access the healthcare facility data right now. Please try again shortly.'"
+    elif lang == "Hindi":
+        lang_instruction = "Language: You MUST respond and speak ENTIRELY in Hindi using Devanagari script. Do NOT use English or Hinglish words."
+        intro = "नमस्ते, मैं आरोग्यम की क्लिनिक और अपॉइंटमेंट विशेषज्ञ हूँ। मैं स्वास्थ्य केंद्रों को खोजने और आपके अपॉइंटमेंट के विकल्पों को समझने में आपकी मदद कर सकती हूँ।"
+        examples = (
+            "Examples:\n"
+            "- User: 'मुझे अपने पास कोई क्लिनिक ढूंढना है।' -> Reply: 'मैं उपयुक्त क्लिनिक खोजने में मदद कर सकती हूँ। आप किस स्थान के पास खोजना चाहते हैं?'\n"
+            "- User: 'अपॉइंटमेंट कैसे बुक करूँ?' -> Reply: 'मैं अपॉइंटमेंट बुक करने में आपका मार्गदर्शन कर सकती हूँ। आप किस केंद्र के लिए बुकिंग करना चाहते हैं?'"
+        )
+        escalation_consent_example = (
+            "'आपके लक्षण गंभीर हो सकते हैं / मैं चिकित्सा स्थिति का निदान नहीं कर सकती। मैं आपके लिए मानव स्वास्थ्य सहायता अनुरोध बना सकती हूँ। "
+            "क्या आप चाहते हैं कि मैं आगे बढ़ूँ?'"
+        )
+        lookup_unclear_prompt = "'मैंने पोंडा, गोवा सुना। क्या आपका यही मतलब था?'"
+        no_location_prompt = "'आप किस शहर, क्षेत्र या जिले में खोजना चाहते हैं?'"
+        failure_prompt = "'मैं इस समय स्वास्थ्य केंद्र की जानकारी नहीं देख पा रही हूँ। कृपया कुछ समय बाद फिर से प्रयास करें।'"
+    else:  # Hinglish
+        lang_instruction = "Language: You MUST respond and speak in Hinglish (a natural mix of Hindi and English written in Latin script)."
+        intro = "Hi, main Aarogyam ki clinic aur appointment specialist hoon. Main healthcare facilities dhoondhne aur aapke appointment options ko samajhne mein aapki help kar sakti hoon."
+        examples = (
+            "Examples:\n"
+            "- User: 'Mujhe clinic dhoondhna hai near me.' -> Reply: 'Main clinic dhoondhne mein aapki help kar sakti hoon. Aap kis location ke paas search karna chahte hain?'\n"
+            "- User: 'Appointment kaise book karein?' -> Reply: 'Main appointment book karne mein aapko guide kar sakti hoon. Aap kis facility ke liye booking karna chahte hain?'"
+        )
+        escalation_consent_example = (
+            "'Aapke symptoms serious ho sakte hain / Main medical condition diagnose nahi kar sakta. Main aapke liye ek human healthcare support request create kar sakta hoon. "
+            "Kya aap chahte hain ki main proceed karoon?'"
+        )
+        lookup_unclear_prompt = "'Mujhe Ponda, Goa sunai diya. Kya aapka wahi matlab tha?'"
+        no_location_prompt = "'Aap kis city, area, ya district mein search karna chahte hain?'"
+        failure_prompt = "'Main abhi healthcare facilities ki details nahi dekh paa rahi hoon. Please thodi der baad try karein.'"
+
+    if is_guest:
+        memory_instruction = ""
+    else:
+        memory_instruction = "- The user's caller information and history have already been loaded at the beginning of the conversation.\n"
+
+    sip_instruction = ""
+    if is_sip:
+        sip_instruction = (
+            "OUTBOUND CALL RULES:\n"
+            "- The user is connected via an outbound telephone call.\n"
+            "- If the user asks to stop calling, stop these reminders, opt out, or unsubscribe, you MUST immediately call the `handoff_to_main_agent` tool. The main agent will handle opt-out.\n"
+        )
+
+    prompt = (
+        f"You are Aarogyam's Clinic & Appointment Specialist. Your responsibility is to help users find and understand healthcare facilities and provide appointment-related guidance.\n"
+        f"Scope: You handle locating hospitals and clinics, explaining facility information, and guiding users through appointment-related options. You have a narrower responsibility than the main Aarogyam agent.\n"
+        f"You MUST NOT diagnose medical conditions, prescribe medication, replace a doctor, invent facility information, invent appointment availability, or provide unsupported medical claims.\n"
+        f"{lang_instruction}\n"
+        f"{examples}\n"
+        f"First Turn Instruction: You will see the handoff from the main agent in the conversation history. In your very first response after handoff, you MUST introduce yourself naturally: '{intro}' and then address the user's request directly from the conversation history.\n"
+        f"Flow Rules:\n"
+        f"1. Acknowledge query warmly -> Provide facility or appointment help -> Ask ONLY the necessary follow-up questions.\n"
+        f"2. STAY ACTIVE FOR CLINIC DETAILS & RATINGS: If the user asks for details, location, ratings, reviews, opening hours, or appointments regarding a clinic/hospital, you MUST stay active. Do NOT hand back to the main agent. If the requested details (like ratings or reviews) are NOT available in your data, clearly state that you do not have or cannot verify that specific information, but do NOT call the hand-back tool.\n"
+        f"3. OUT-OF-SCOPE & HAND-BACK: Only hand back to the main agent (using `handoff_to_main_agent`) when the user completely changes the topic to general health, wellness, diet/exercise tips, or general symptom/wellness questions unrelated to clinics, hospitals, facility details, or appointments.\n"
+        f"4. Emergencies (chest/arm pain, breathing difficulty, stroke, self-harm, etc.): Do NOT act as a specialist. Immediately follow emergency guidance: explain they may require immediate medical attention, offer to create an escalation/support request (e.g. {escalation_consent_example}), and if they consent, call `create_escalation`.\n"
+        f"MEMORY:\n"
+        f"{memory_instruction}"
+        f"HEALTHCARE FACILITY LOOKUP:\n"
+        f"- You can search for nearby hospitals, clinics, and doctors using the `lookup_healthcare_facilities` tool.\n"
+        f"- Check conversation history for a general location (city/district/area like 'Jaipur' or 'Dehradun') and use it. If not present in history, verbally prompt the user (e.g., {no_location_prompt}).\n"
+        f"- If the target location is ambiguous or phonetically garbled, ask for confirmation (e.g., {lookup_unclear_prompt}).\n"
+        f"- Treat `session_language` in the tool response as authoritative for the response language.\n"
+        f"- Summarize only top 2 to 3 facilities. Mention OSM contributors. Tell user to verify details. Do NOT claim data is government-certified.\n"
+        f"- If the lookup fails, state: {failure_prompt}.\n"
+        f"{sip_instruction}"
+        f"Style: Max 2-3 short sentences. NEVER use markdown (no * or **, lists, or bullet points). Use simple conversational language.\n"
+    )
+    return prompt
+
+
+def update_specialist_prompt(specialist, lang: str) -> None:
+    is_guest = getattr(specialist, "is_guest", False)
+    is_sip = getattr(specialist, "is_sip", False)
+    new_prompt = get_specialist_system_prompt(lang, is_guest=is_guest, is_sip=is_sip)
+    specialist._instructions = new_prompt
+    if hasattr(specialist, "_chat_ctx") and specialist._chat_ctx is not None:
+        for item in specialist._chat_ctx._items:
+            if hasattr(item, "role") and item.role == "system":
+                item.content = new_prompt
+
 
 
 def detect_language(text: str) -> str:
@@ -455,6 +543,64 @@ class Assistant(Agent):
             instructions=get_system_prompt("Hinglish", is_guest=is_guest, is_sip=is_sip)
         )
 
+    async def on_enter(self) -> None:
+        logger.info("Assistant entered.")
+        try:
+            # Set participant attributes for UI state change
+            await self._activity.session.room_io.room.local_participant.set_attributes({
+                "agent_role": "main_agent"
+            })
+        except Exception as e:
+            logger.warning(f"Failed to set attributes: {e}")
+
+    @function_tool
+    async def handoff_to_clinic_specialist(self, context: RunContext) -> str:
+        """Call this tool to hand off the conversation to the Clinic & Appointment Specialist.
+        Use this tool when the user wants to:
+        - Find a clinic or hospital.
+        - Locate nearby healthcare facilities.
+        - Ask for facility details (e.g. primary health centres).
+        - Ask appointment-related questions.
+        - Help choosing between healthcare facilities.
+        
+        Do NOT use this tool for:
+        - General wellness questions, diet, or exercise.
+        - General health education or normal symptom questions.
+        - Memory-related requests or human escalation requests.
+        - Emergency situations (which require safety/escalation flow).
+        """
+        logger.info("Assistant handing off to Clinic & Appointment Specialist...")
+        announcement = "I'll connect you with our clinic and appointment specialist so they can help you with that."
+        if self.current_lang == "Hindi":
+            announcement = "मैं आपको हमारे क्लिनिक और अपॉइंटमेंट विशेषज्ञ से जोड़ती हूँ ताकि वे आपकी मदद कर सकें।"
+        elif self.current_lang == "Hinglish":
+            announcement = "Main aapko hamare clinic aur appointment specialist se connect kar deti hoon taaki wo aapki help kar sakein."
+
+        try:
+            await context.session.room_io.room.local_participant.set_attributes({
+                "agent_role": "clinic_specialist_connecting"
+            })
+        except Exception as e:
+            logger.warning(f"Failed to set attributes: {e}")
+
+        # Speak announcement first
+        speech_handle = context.session.say(announcement, allow_interruptions=False)
+        await speech_handle
+
+        # Instantiate specialist agent
+        specialist = ClinicAppointmentSpecialist(
+            chat_ctx=self._chat_ctx,
+            user_id=self.user_id,
+            user_name=self.user_name,
+            is_guest=self.is_guest,
+            is_sip=self.is_sip,
+            call_tracker=self.call_tracker,
+        )
+        specialist.current_lang = self.current_lang
+        update_specialist_prompt(specialist, self.current_lang)
+
+        return specialist, "Handoff to Clinic & Appointment Specialist completed."
+
     @function_tool
     async def lookup_caller(self, context: RunContext) -> str:
         """Use this tool at the beginning of the conversation to check if the user is a returning caller
@@ -558,7 +704,6 @@ class Assistant(Agent):
             self.call_tracker["has_error"] = True
             return "Error: Failed to register opt-out preference."
 
-    @function_tool
     async def lookup_healthcare_facilities(
         self,
         context: RunContext,
@@ -651,6 +796,200 @@ class Assistant(Agent):
         """
         logger.info(
             f"Creating escalation for user_id: {self.user_id}. Urgency: {urgency}"
+        )
+        self.call_tracker["escalation_status"] = "requested"
+        if urgency not in ("low", "medium", "high", "emergency"):
+            self.call_tracker["escalation_status"] = "failed"
+            return "Error: Urgency must be one of: 'low', 'medium', 'high', 'emergency'."
+
+        try:
+            escalation = Escalation(
+                user_id=self.user_id,
+                problem_summary=problem_summary,
+                checks_performed=checks_performed,
+                urgency=urgency,
+                language=self.current_lang,
+                preferred_follow_up=preferred_follow_up,
+            )
+            EscalationService.create_escalation_record(escalation)
+            logger.info(f"Escalation successfully created with reference ID: {escalation.id}")
+            self.call_tracker["escalation_status"] = "created"
+            return f"Success: Request created successfully. Reference ID: {escalation.id}. Status: {escalation.status}."
+        except Exception as e:
+            logger.error(f"Error creating escalation record: {e}")
+            self.call_tracker["escalation_status"] = "failed"
+            self.call_tracker["has_error"] = True
+            return "Error: Failed to create escalation request."
+
+
+class ClinicAppointmentSpecialist(Agent):
+    def __init__(
+        self,
+        chat_ctx: llm.ChatContext,
+        user_id: str = "guest_session",
+        user_name: str = "Guest",
+        is_guest: bool = True,
+        is_sip: bool = False,
+        call_tracker: dict = None,
+    ) -> None:
+        self.user_id = user_id
+        self.user_name = user_name
+        self.is_guest = is_guest
+        self.is_sip = is_sip
+        self.current_lang = "Hinglish"
+        self.call_tracker = call_tracker if call_tracker is not None else {}
+        super().__init__(
+            instructions=get_specialist_system_prompt("Hinglish", is_guest=is_guest, is_sip=is_sip),
+            chat_ctx=chat_ctx,
+        )
+
+    async def on_enter(self) -> None:
+        logger.info("ClinicAppointmentSpecialist entered.")
+        try:
+            # Set participant attributes for UI state change
+            await self._activity.session.room_io.room.local_participant.set_attributes({
+                "agent_role": "clinic_specialist"
+            })
+        except Exception as e:
+            logger.warning(f"Failed to set attributes: {e}")
+
+        # Proactively respond after handoff
+        self._activity.session.generate_reply()
+
+    @function_tool
+    async def handoff_to_main_agent(self, context: RunContext) -> str:
+        """Call this tool to return the conversation back to the main Aarogyam agent.
+        Use this tool ONLY when:
+        - The user changes the topic completely to general health, wellness, diet, exercise, or general symptoms.
+        
+        Do NOT use this tool:
+        - If the user asks about clinic/hospital details, locations, opening hours, appointments, or ratings/reviews of clinics. If you don't know the rating or review, state that you don't have that info, but do NOT hand back.
+        """
+        logger.info("Specialist handing back to main Aarogyam agent...")
+        announcement = "I've helped you with the clinic information. I'll hand you back to Aarogyam for anything else."
+        if self.current_lang == "Hindi":
+            announcement = "मैंने आपको क्लिनिक की जानकारी दे दी है। अब मैं आपको बाकी चीज़ों के लिए वापस आरोग्यम से जोड़ती हूँ।"
+        elif self.current_lang == "Hinglish":
+            announcement = "Maine aapko clinic ki information de di hai. Ab main aapko baki cheezon ke liye wapas Aarogyam se connect kar deti hoon."
+
+        try:
+            await context.session.room_io.room.local_participant.set_attributes({
+                "agent_role": "main_agent_connecting"
+            })
+        except Exception as e:
+            logger.warning(f"Failed to set attributes: {e}")
+
+        # Speak announcement first
+        speech_handle = context.session.say(announcement, allow_interruptions=False)
+        await speech_handle
+
+        # Instantiate main agent
+        main_agent = Assistant(
+            user_id=self.user_id,
+            user_name=self.user_name,
+            is_guest=self.is_guest,
+            is_sip=self.is_sip,
+        )
+        main_agent.current_lang = self.current_lang
+        # Copy the analytics call tracker back
+        main_agent.call_tracker = self.call_tracker
+        update_assistant_prompt(main_agent, self.current_lang)
+
+        return main_agent, "Handoff back to main Aarogyam agent completed."
+
+    @function_tool
+    async def lookup_healthcare_facilities(
+        self,
+        context: RunContext,
+        location: str,
+    ) -> str:
+        """Look up nearby healthcare facilities (hospitals, clinics, and doctors) for a specified Indian location.
+
+        Use this tool when:
+        - The user asks for nearby hospitals, clinics, doctors, primary health centres (PHCs), or health centres.
+        - A specific Indian location (city, area, or district) is provided by the user or is available in caller history.
+
+        Do NOT use this tool:
+        - For medical diagnosis, prescribing medications, or giving treatment advice.
+        - When the user has not provided a specific location name and none exists in memory (ask for the location verbally instead).
+        - To fabricate or guess healthcare facility availability.
+
+        Args:
+            location: The name of the city, district, neighborhood, or area in India to search in.
+        """
+        logger.info(f"Specialist looking up healthcare facilities for location: {location}")
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        session_lang = getattr(self, "current_lang", "Hinglish")
+        self.call_tracker["lookup_status"] = "requested"
+
+        # 1. Geocode the location
+        geocoded = await asyncio.to_thread(_geocode_location, location)
+        if not geocoded:
+            self.call_tracker["lookup_status"] = "failed"
+            result = {
+                "status": "failed",
+                "reason": f"Could not geocode or locate '{location}' in India.",
+                "fetched_at": fetched_at,
+                "session_language": session_lang,
+                "source": "OpenStreetMap contributors",
+            }
+            return json.dumps(result, ensure_ascii=False)
+
+        lat, lon, display_name = geocoded
+        logger.info(f"Resolved '{location}' to ({lat}, {lon}) - '{display_name}'")
+
+        # 2. Fetch nearby facilities (hospital, clinic, doctors) within 5km radius
+        facilities = await asyncio.to_thread(_fetch_nearby_facilities, lat, lon)
+
+        # Limit to top 2-3 facilities
+        top_facilities = facilities[:3]
+
+        # If no facilities found
+        if not top_facilities:
+            self.call_tracker["lookup_status"] = "success"
+            result = {
+                "status": "failed",
+                "reason": f"No healthcare facilities found within 5km of '{display_name}'.",
+                "fetched_at": fetched_at,
+                "session_language": session_lang,
+                "source": "OpenStreetMap contributors",
+            }
+            return json.dumps(result, ensure_ascii=False)
+
+        # Return success with facilities
+        self.call_tracker["lookup_status"] = "success"
+        result = {
+            "status": "success",
+            "location": display_name,
+            "coordinates": {"lat": lat, "lon": lon},
+            "facilities": top_facilities,
+            "fetched_at": fetched_at,
+            "session_language": session_lang,
+            "source": "OpenStreetMap contributors",
+        }
+        return json.dumps(result, ensure_ascii=False)
+
+    @function_tool
+    async def create_escalation(
+        self,
+        context: RunContext,
+        problem_summary: str,
+        checks_performed: str,
+        urgency: str,
+        preferred_follow_up: str,
+    ) -> str:
+        """Create a human healthcare support request.
+        CRITICAL: You are FORBIDDEN from invoking this tool before telling the user what details will be shared
+        and receiving explicit positive consent. If consent is not explicitly granted, do NOT call this tool.
+
+        Args:
+            problem_summary: A concise summary of the caller's problem/symptoms. Do NOT include sensitive info like passwords, OTPs, PINs, or account numbers.
+            checks_performed: What Aarogyam checked, advised, or determined so far.
+            urgency: The urgency level of the request. Must be one of: 'low', 'medium', 'high', 'emergency'.
+            preferred_follow_up: The user's preferred follow-up method (e.g. 'phone call', 'SMS').
+        """
+        logger.info(
+            f"Specialist creating escalation for user_id: {self.user_id}. Urgency: {urgency}"
         )
         self.call_tracker["escalation_status"] = "requested"
         if urgency not in ("low", "medium", "high", "emergency"):
@@ -893,22 +1232,41 @@ async def my_agent(ctx: JobContext):
     def on_user_input_transcribed(ev: UserInputTranscribedEvent):
         nonlocal last_user_text, current_session_lang
         if ev.is_final and ev.transcript:
-            # Increment user speech count
+            # Increment user speech count on the main assistant's tracker
             assistant.call_tracker["user_speech_count"] += 1
             text = ev.transcript
             last_user_text = text
             # Dynamically update session language if user explicitly switches language
             current_session_lang = detect_language(text)
-            assistant.current_lang = current_session_lang
+            
+            active_agent = session.current_agent
+            active_agent.current_lang = current_session_lang
             logger.info(
                 f"User speech committed: '{text}'. Detected language: {current_session_lang}"
             )
-            # Update instructions synchronously to avoid race conditions
-            update_assistant_prompt(assistant, current_session_lang)
-            # Also trigger the async task for any internal SDK side-effects
-            asyncio.create_task(
-                assistant.update_instructions(get_system_prompt(current_session_lang))
-            )
+            # Update instructions on the active agent
+            if isinstance(active_agent, Assistant):
+                update_assistant_prompt(active_agent, current_session_lang)
+                asyncio.create_task(
+                    active_agent.update_instructions(
+                        get_system_prompt(
+                            current_session_lang,
+                            is_guest=active_agent.is_guest,
+                            is_sip=active_agent.is_sip
+                        )
+                    )
+                )
+            elif isinstance(active_agent, ClinicAppointmentSpecialist):
+                update_specialist_prompt(active_agent, current_session_lang)
+                asyncio.create_task(
+                    active_agent.update_instructions(
+                        get_specialist_system_prompt(
+                            current_session_lang,
+                            is_guest=active_agent.is_guest,
+                            is_sip=active_agent.is_sip
+                        )
+                    )
+                )
 
     silence_count = 0
     silence_timer_task = None
