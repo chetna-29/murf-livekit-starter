@@ -16,7 +16,9 @@ class DashboardController:
         user_id = request.state.user_id
         user = UserService.get_user_by_id(user_id)
         if not user:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            )
 
         conversations = ConversationService.list_conversations(user_id)
         last_conversation = conversations[-1].to_dict() if conversations else None

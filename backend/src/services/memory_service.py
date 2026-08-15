@@ -86,6 +86,12 @@ class MemoryService:
                     facts=excluded.facts,
                     last_interaction=excluded.last_interaction
                 """,
-                (normalized_id, name, language_preference, facts_json, last_interaction),
+                (
+                    normalized_id,
+                    name,
+                    language_preference,
+                    facts_json,
+                    last_interaction,
+                ),
             )
             conn.commit()

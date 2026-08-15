@@ -43,64 +43,348 @@ logger = logging.getLogger("agent")
 load_dotenv(".env.local")
 
 
+MURF_VOICE_MAPPING = {
+    "English": "Anisha",
+    "Hindi": "Anisha",
+    "Hinglish": "Anisha",
+    "Marathi": "Prajakta",
+    "Gujarati": "Diya",
+    "Tamil": "Anisha",
+    "Telugu": "Anisha",
+    "Kannada": "Anisha",
+    "Malayalam": "Anisha",
+    "Punjabi": "Anisha",
+    "Bengali": "Anisha",
+    "Spanish": "es-MX-maria",
+    "French": "fr-FR-philippe",
+    "German": "de-DE-dieter",
+    "Italian": "it-IT-elena",
+    "Portuguese": "pt-BR-marcia",
+    "Japanese": "ja-JP-sakura",
+}
+
+LOCALIZATION = {
+    "English": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in English. Do NOT use any Hindi, Hinglish, or Devanagari words under any circumstances.",
+        "examples": "- User: 'I have headache since yesterday.' -> Reply: 'I understand you have had a headache since yesterday. Is the pain continuous or does it come and go?'\n- User: 'I have fever and body pain.' -> Reply: 'I see. You have a fever along with body pain. Have you checked your temperature?'",
+        "consent_example": "'Can I save your preferred language and step goal?'",
+        "escalation_consent_example": "'Your symptoms might be serious / I cannot diagnose medical conditions. I can create a human healthcare support request for you. With your permission, I will share your user ID, a summary of your problem, what I checked, your urgency level, language, and preferred follow-up method. Would you like me to proceed?'",
+        "lookup_unclear_prompt": "'I heard Ponda, Goa. Is that what you meant?' or 'Did you mean Dehradun?'",
+        "no_location_prompt": "'Which city, area, or district should I search?'",
+        "failure_prompt": "'I\\'m unable to access the healthcare facility data right now. Please try again shortly.'"
+    },
+    "Hindi": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Hindi using Devanagari script. Do NOT use English or Hinglish words.",
+        "examples": "- User: 'मुझे कल से सिरदर्द है।' -> Reply: 'समझ गया। आपको कल से सिरदर्द है। क्या सिरदर्द लगातार हो रहा है या कभी-कभी?'\n- User: 'मुझे बुखार और शरीर में दर्द है।' -> Reply: 'मैं समझ सकता हूँ। आपको बुखार के साथ शरीर में दर्द भी है। क्या आपने अपना तापमान चेक किया है?'",
+        "consent_example": "'क्या मैं आपकी पसंदीदा भाषा और स्टेप गोल सेव कर सकती हूँ?'",
+        "escalation_consent_example": "'आपके लक्षण गंभीर हो सकते हैं / मैं चिकित्सा स्थिति का निदान नहीं कर सकती। मैं आपके लिए मानव स्वास्थ्य सहायता अनुरोध बना सकती हूँ। आपकी अनुमति से, मैं आपकी यूजर आईडी, समस्या का सारांश, जो मैंने जांचा है, आपकी तत्परता स्तर (urgency), भाषा और पसंदीदा संपर्क विधि साझा करूँगी। क्या आप चाहते हैं कि/मैं आगे बढ़ूँ?'",
+        "lookup_unclear_prompt": "'मैंने पोंडा, गोवा सुना। क्या आपका यही मतलब था?' या 'क्या आपका मतलब देहरादून था?'",
+        "no_location_prompt": "'आप किस शहर, क्षेत्र या जिले में खोजना चाहते हैं?'",
+        "failure_prompt": "'मैं इस समय स्वास्थ्य केंद्र की जानकारी नहीं देख पा रही हूँ। कृपया कुछ समय बाद फिर से प्रयास करें।'"
+    },
+    "Hinglish": {
+        "lang_instruction": "Language: You MUST respond and speak in Hinglish (a natural mix of Hindi and English written in Latin script).",
+        "examples": "- User: 'Mujhe headache hai since yesterday.' -> Reply: 'Samajh gaya. Aapko kal se headache hai. Kya headache continuous hai ya kabhi-kabhi ho raha hai?'\n- User: 'I have fever but body pain bhi ho raha hai.' -> Reply: 'I understand. Aapko fever ke saath body pain bhi ho raha hai. Have you checked your temperature?'",
+        "consent_example": "'Kya main aapki preferred language aur step goal save kar sakta hoon?'",
+        "escalation_consent_example": "'Aapke symptoms serious ho sakte hain / Main medical condition diagnose nahi kar sakta. Main aapke liye ek human healthcare support request create kar sakta hoon. Aapki permission se, main aapki user ID, problem summary, jo maine check kiya hai, aapki urgency level, language aur preferred follow-up method share karunga. Kya aap chahte hain ki main proceed karoon?'",
+        "lookup_unclear_prompt": "'Mujhe Ponda, Goa sunai diya. Kya aapka wahi matlab tha?' or 'Kya aapka matlab Dehradun tha?'",
+        "no_location_prompt": "'Aap kis city, area, ya district mein search karna chahte hain?'",
+        "failure_prompt": "'Main abhi healthcare facilities ki details nahi dekh paa rahi hoon. Please thodi der baad try karein.'"
+    },
+    "Marathi": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Marathi using Devanagari script. Do NOT use English or Hindi words.",
+        "examples": "- User: 'मला कालपासून डोकेदुखी आहे.' -> Reply: 'मला समजले की तुम्हाला कालपासून डोकेदुखी आहे. वेदना सतत होत आहे की अधूनमधून?'\n- User: 'मला ताप आणि अंगदुखी आहे.' -> Reply: 'मी समजू शकतो. तुम्हाला तापासोबत अंगदुखी देखील आहे. तुम्ही तुमचे तापमान तपासले आहे का?'",
+        "consent_example": "'मी तुमची पसंतीची भाषा आणि पाऊल ध्येय (step goal) जतन करू का?'",
+        "escalation_consent_example": "'तुमची लक्षणे गंभीर असू शकतात / मी वैद्यकीय परिस्थितीचे निदान करू शकत नाही. मी तुमच्यासाठी मानवी आरोग्य विनंती तयार करू शकतो. तुमच्या परवानगीने, मी तुमचे तपशील सामायिक करेन. मी पुढे जाऊ का?'",
+        "lookup_unclear_prompt": "'मी पोंडा, गोवा ऐकले. तुम्हाला तेच हवे होते का?' किंवा 'तुम्हाला देहरादून म्हणायचे होते का?'",
+        "no_location_prompt": "'मी कोणत्या शहर, भागात किंवा जिल्ह्यात शोधू?'",
+        "failure_prompt": "'मला सध्या आरोग्य केंद्राची माहिती मिळू शकत नाही. कृपया थोड्या वेळाने पुन्हा प्रयत्न करा.'"
+    },
+    "Gujarati": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Gujarati using Gujarati script. Do NOT use English or Hindi words.",
+        "examples": "- User: 'મને કાલથી માથું દુખે છે.' -> Reply: 'હું સમજી શકું છું કે તમને કાલથી માથું દુખે છે. આ દુખાવો સતત રહે છે કે ક્યારેક જ થાય છે?'\n- User: 'મને તાવ અને શરીરનો દુખાવો છે.' -> Reply: 'હું સમજી શકું છું. તમને તાવ સાથે શરીરનો દુખાવો પણ છે. શું તમે તમારું તાપમાન માપ્યું છે?'",
+        "consent_example": "'શું હું તમારી પસંદગીની ભાષા અને સ્ટેપ ગોલ સેવ કરી શકું?'",
+        "escalation_consent_example": "'તમારા લક્ષણો ગંભીર હોઈ શકે છે / હું તબીબી સ્થિતિનું નિદાન કરી શકતો નથી. હું હ્યુમન હેલ્થકેર સપોર્ટ રિક્વેસ્ટ બનાવી શકું છું. તમારી પરવાનગીથી, હું વિગતો શેર કરીશ. શું હું આગળ વધું?'",
+        "lookup_unclear_prompt": "'મેં પોંડા, ગોવા સાંભળ્યું. શું તમારો એ જ મતલબ હતો?' અથવા 'શું તમારો મતલબ દેહરાદૂન હતો?'",
+        "no_location_prompt": "'હું કયા શહેરમાં અથવા વિસ્તારમાં શોધ કરું?'",
+        "failure_prompt": "'હું અત્યારે હેલ્થકેર ફેસિલિટી ડેટા એક્સેસ કરવા અસમર્થ છું. કૃપા કરીને થોડીવાર પછી ફરી પ્રયાસ કરો.'"
+    },
+    "Tamil": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Tamil using Tamil script.",
+        "examples": "- User: 'எனக்கு நேற்று முதல் தலைவலி உள்ளது.' -> Reply: 'உங்களுக்கு நேற்று முதல் தலைவலி உள்ளது என்பதை நான் புரிந்து கொள்கிறேன். வலி தொடர்ந்து இருக்கிறதா அல்லது வந்து போகிறதா?'\n- User: 'எனக்கு காய்ச்சலும் உடல் வலியும் உள்ளது.' -> Reply: 'எனக்கு புரிகிறது. உங்களுக்கு காய்ச்சலுடன் உடல் வலியும் உள்ளது. உங்கள் உடல் வெப்பநிலையை சரிபார்த்தீர்களா?'",
+        "consent_example": "'உங்கள் விருப்பமான மொழி மற்றும் இலக்கை நான் சேமிக்கலாமா?'",
+        "escalation_consent_example": "'உங்கள் அறிகுறிகள் தீவிரமாக இருக்கலாம் / என்னால் மருத்துவ நிலைமைகளைக் கண்டறிய முடியாது. நான் மனித சுகாதார ஆதரவு கோரிக்கையை உருவாக்க முடியும். உங்கள் அனுமதியுடன், நான் விவரங்களைப் பகிர்வேன். நான் தொடரலாமா?'",
+        "lookup_unclear_prompt": "'நான் போண்டா, கோவா என்று கேட்டேன். அதைத்தான் சொன்னீர்களா?' அல்லது 'டேராடூன் என்று சொல்ல வருகிறீர்களா?'",
+        "no_location_prompt": "'நான் எந்த நகரம், பகுதி அல்லது மாவட்டத்தில் தேட வேண்டும்?'",
+        "failure_prompt": "'என்னால் இப்போது சுகாதார வசதித் தரவை அணுக முடியவில்லை. சிறிது நேரம் கழித்து மீண்டும் முயற்சிக்கவும்.'"
+    },
+    "Telugu": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Telugu using Telugu script.",
+        "examples": "- User: 'నాకు నిన్నటి నుండి తలనొప్పిగా ఉంది.' -> Reply: 'మీకు నిన్నటి నుండి తలనొప్పి ఉందని నేను అర్థం చేసుకున్నాను. నొప్పి నిరంతరంగా ఉందా లేదా వచ్చిపోతుందా?'\n- User: 'నాకు జ్వరం మరియు ఒంటి నొప్పులు ఉన్నాయి.' -> Reply: 'అవునా, జ్వరంతో పాటు ఒంటి నొప్పులు కూడా ఉన్నాయా. మీరు మీ శరీర ఉష్ణోగ్రతను పరీక్షించుకున్నారా?'",
+        "consent_example": "'నేను మీ ప్రాధాన్యత భాష మరియు దశ లక్ష్యాన్ని సేవ్ చేయవచ్చా?'",
+        "escalation_consent_example": "'మీ లక్షణాలు తీవ్రంగా ఉండవచ్చు / నేను వైద్య పరిస్థితులను నిర్ధారించలేను. నేను హ్యూమన్ హెల్త్‌కేర్ సపోర్ట్ రిక్వెస్ట్ క్రియేట్ చేయగలను. మీ అనుమతితో, నేను వివరాలను షేర్ చేస్తాను. నేను కొనసాగించవచ్చా?'",
+        "lookup_unclear_prompt": "'నేను పోండా, గోవా అని విన్నాను. మీ ఉద్దేశం అదేనా?' లేదా 'మీ ఉద్దేశం డెహ్రాడూన్ ఆ?'",
+        "no_location_prompt": "'నేను ఏ నగరం, ప్రాంతం లేదా జిల్లాలో వెతకాలి?'",
+        "failure_prompt": "'నేను ఇప్పుడు హెల్త్‌కేర్ సదుపాయాల డేటాను యాక్సెస్ చేయలేకపోతున్నాను. దయచేసి కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.'"
+    },
+    "Kannada": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Kannada using Kannada script.",
+        "examples": "- User: 'ನನಗೆ ನಿನ್ನೆಯಿಂದ ತಲೆನೋವು ಇದೆ.' -> Reply: 'ನಿಮಗೆ ನಿನ್ನೆಯಿಂದ ತಲೆನೋವು ಇದೆ ಎಂದು ನಾನು ಅರ್ಥಮಾಡಿಕೊಂಡಿದ್ದೇನೆ. ನೋವು ನಿರಂತರವಾಗಿದೆಯೇ ಅಥವಾ ಬಂದು ಹೋಗುತ್ತದೆಯೇ?'\n- User: 'ನನಗೆ ಜ್ವರ ಮತ್ತು ಮೈ ಕೈ ನೋವು ಇದೆ.' -> Reply: 'ನನಗೆ ಅರ್ಥವಾಗುತ್ತದೆ. ನಿಮಗೆ ಜ್ವರದ ಜೊತೆಗೆ ಮೈ ಕೈ ನೋವು ಕೂಡ ಇದೆಯೇ. ನಿಮ್ಮ ದೇಹದ ತಾಪಮಾನವನ್ನು ಪರೀಕ್ಷಿಸಿದ್ದೀರಾ?'",
+        "consent_example": "'ನಿಮ್ಮ ಆದ್ಯತೆಯ ಭಾಷೆ ಮತ್ತು ಹಂತದ ಗುರಿಯನ್ನು ನಾನು ಉಳಿಸಬಹುದೇ?'",
+        "escalation_consent_example": "'ನಿಮ್ಮ ರೋಗಲಕ್ಷಣಗಳು ಗಂಭೀರವಾಗಿರಬಹುದು / ನಾನು ವೈದ್ಯಕೀಯ ಪರಿಸ್ಥಿತಿಗಳನ್ನು ಪತ್ತೆಹಚ್ಚಲು ಸಾಧ್ಯವಿಲ್ಲ. ನಾನು ಹ್ಯೂಮನ್ ಹೆಲ್ತ್‌ಕೇರ್ ಬೆಂಬಲ ವಿನಂತಿಯನ್ನು ರಚಿಸಬಲ್ಲೆ. ನಿಮ್ಮ ಅನುಮತಿಯೊಂದಿಗೆ, ನಾನು ವಿವರಗಳನ್ನು ಹಂಚಿಕೊಳ್ಳುತ್ತೇನೆ. ನಾನು ಮುಂದುವರಿಯಬಹುದೇ?'",
+        "lookup_unclear_prompt": "'ನಾನು ಪೋಂಡಾ, ಗೋವಾ ಎಂದು ಕೇಳಿದೆ. ನಿಮ್ಮ ಉದ್ದೇಶ ಅದೇ ಆಗಿತ್ತೇ?' ಅಥವಾ 'ನಿಮ್ಮ ಉದ್ದೇಶ ಡೆಹ್ರಾಡೂನ್ ಆಗಿತ್ತೇ?'",
+        "no_location_prompt": "'ನಾನು ಯಾವ ನಗರ, ಪ್ರದೇಶ ಅಥವಾ ಜಿಲ್ಲೆಯಲ್ಲಿ ಹುಡುಕಬೇಕು?'",
+        "failure_prompt": "'ನನಗೆ ಈಗ ಆರೋಗ್ಯ ಸೌಲಭ್ಯದ ಡೇಟಾವನ್ನು ಪ್ರವೇಶಿಸಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲ. ದಯವಿಟ್ಟು ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.'"
+    },
+    "Bengali": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Bengali using Bengali script.",
+        "examples": "- User: 'আমার গতকাল থেকে মাথা ব্যাথা করছে।' -> Reply: 'আমি বুঝতে পারছি আপনার গতকাল থেকে মাথা ব্যাথা করছে। ব্যাথা কি অনবরত হচ্ছে নাকি মাঝে মাঝে হচ্ছে?'\n- User: 'আমার জ্বর এবং গা ব্যাথা আছে।' -> Reply: 'বুঝতে পেরেছি। জ্বরের সাথে গা ব্যাথাও আছে। আপনি কি নিজের গায়ের তাপমাত্রা মেপে দেখেছেন?'",
+        "consent_example": "'আমি কি আপনার পছন্দের ভাষা এবং পদক্ষেপের লক্ষ্য সংরক্ষণ করতে পারি?'",
+        "escalation_consent_example": "'আপনার লক্ষণগুলি গুরুতর হতে পারে / আমি চিকিৎসার অবস্থা নির্ণয় করতে পারি না। আমি একটি মানব স্বাস্থ্যসেবা সহায়তার অনুরোধ তৈরি করতে পারি। আপনার অনুমতি নিয়ে, আমি বিবরণ শেয়ার করব। আমি কি এগিয়ে যাব?'",
+        "lookup_unclear_prompt": "'আমি পোন্ডা, গোয়া শুনেছি। আপনি কি এটাই বলতে চেয়েছেন?' বা 'আপনি কি দেরাদুন বোঝাতে চেয়েছেন?'",
+        "no_location_prompt": "'আমি কোন শহর, অঞ্চল বা জেলায় খুঁজব?'",
+        "failure_prompt": "'আমি এখন স্বাস্থ্যসেবা সুবিধার তথ্য অ্যাক্সেস করতে পারছি না। অনুগ্রহ করে একটু পরে আবার চেষ্টা করুন।'"
+    },
+    "Malayalam": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Malayalam using Malayalam script.",
+        "examples": "- User: 'എനിക്ക് ഇന്നലെ മുതൽ തലവേദനയുണ്ട്.' -> Reply: 'നിങ്ങൾക്ക് ഇന്നലെ മുതൽ തലവേദനയുണ്ടെന്ന് ഞാൻ മനസ്സിലാക്കുന്നു. വേദന തുടർച്ചയായതാണോ അതോ വന്നുപോകുന്നതാണോ?'\n- User: 'എനിക്ക് പനിയും ദേഹവേദനയുമുണ്ട്.' -> Reply: 'എനിക്ക് മനസ്സിലാകുന്നു. പനിയുടെ കൂടെ ദേഹവേദനയുമുണ്ടല്ലേ. ചൂട് നോക്കിയിരുന്നോ?'",
+        "consent_example": "'എനിക്ക് നിങ്ങളുടെ മുൻഗണനാ ഭാഷയും ലക്ഷ്യവും സംരക്ഷിക്കാമോ?'",
+        "escalation_consent_example": "'നിങ്ങളുടെ ലക്ഷണങ്ങൾ ഗുരുതരമായേക്കാം / എനിക്ക് രോഗനിർണ്ണയം നടത്താൻ കഴിയില്ല. ഞാൻ ഒരു സപ്പോർട്ട് അഭ്യർത്ഥന സൃഷ്ടിക്കാം. നിങ്ങളുടെ അനുവാദത്തോടെ വിവരങ്ങൾ പങ്കിടാം. ഞാൻ തുടരട്ടെയോ?'",
+        "lookup_unclear_prompt": "'ഞാൻ പോണ്ട, ഗോവ എന്ന് കേട്ടു. താങ്കൾ അത് തന്നെയാണോ ഉദ്ദേശിച്ചത്?' അതോ 'ഡെറാഡൂൺ എന്നാണോ ഉദ്ദേശിച്ചത്?'",
+        "no_location_prompt": "'ഞാൻ ഏത് നഗരത്തിലോ പ്രദേശത്തോ ജില്ലയിലോ ആണ് തിരയേണ്ടത്?'",
+        "failure_prompt": "'എനിക്ക് ഇപ്പോൾ ആരോഗ്യ കേന്ദ്രങ്ങളുടെ വിവരങ്ങൾ ലഭ്യമല്ല. ദയവായി കുറച്ചു കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.'"
+    },
+    "Punjabi": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Punjabi using Gurmukhi script.",
+        "examples": "- User: 'ਮੈਨੂੰ ਕੱਲ੍ਹ ਤੋਂ ਸਿਰਦਰਦ ਹੈ।' -> Reply: 'ਮੈਂ ਸਮਝ ਸਕਦਾ ਹਾਂ ਕਿ ਤੁਹਾਨੂੰ ਕੱਲ੍ਹ ਤੋਂ ਸਿਰਦਰਦ ਹੈ। ਦਰਦ ਲਗਾਤਾਰ ਹੋ ਰਿਹਾ ਹੈ ਜਾਂ ਕਦੇ-ਕਦੇ?'\n- User: 'ਮੈਨੂੰ ਬੁਖਾਰ ਤੇ ਸਰੀਰ ਵਿੱਚ ਦਰਦ ਹੈ।' -> Reply: 'ਮੈਂ ਸਮਝ ਸਕਦਾ ਹਾਂ। ਬੁਖਾਰ ਦੇ ਨਾਲ ਸਰੀਰ ਵਿੱਚ ਦਰਦ ਵੀ ਹੈ। ਕੀ ਤੁਸੀਂ ਆਪਣਾ ਤਾਪਮਾਨ ਚੈੱਕ ਕੀਤਾ ਹੈ?'",
+        "consent_example": "'ਕੀ ਮੈਂ ਤੁਹਾਡੀ ਪਸੰਦੀਦਾ ਭਾਸ਼ਾ ਅਤੇ ਕਦਮ ਦਾ ਟੀਚਾ ਸੁਰੱਖਿਅਤ ਕਰ ਸਕਦਾ ਹਾਂ?'",
+        "escalation_consent_example": "'ਤੁਹਾਡੇ ਲੱਛਣ ਗੰਭੀਰ ਹੋ ਸਕਦੇ ਹਨ / ਮੈਂ ਡਾਕਟਰੀ ਸਥਿਤੀ ਦਾ ਇਲਾਜ ਨਹੀਂ ਕਰ ਸਕਦਾ। ਮੈਂ ਇੱਕ ਮਨੁੱਖੀ ਸਿਹਤ ਸੰਭਾਲ ਸਹਾਇਤਾ ਬੇਨਤੀ ਬਣਾ ਸਕਦਾ ਹਾਂ। ਤੁਹਾਡੀ ਇਜਾਜ਼ਤ ਨਾਲ, ਮੈਂ ਜਾਣਕਾਰੀ ਸਾਂਝੀ ਕਰਾਂਗਾ। ਕੀ ਮੈਂ ਅੱਗੇ ਵਧਾਂ?'",
+        "lookup_unclear_prompt": "'ਮੈਂ ਪੋਂਡਾ, ਗੋਆ ਸੁਣਿਆ ਹੈ। ਕੀ ਤੁਹਾਡਾ ਇਹੀ ਮਤਲਬ ਸੀ?' ਜਾਂ 'ਕੀ ਤੁਹਾਡਾ ਮਤਲਬ ਦੇਹਰਾਦੂਨ ਸੀ?'",
+        "no_location_prompt": "'ਮੈਨੂੰ ਕਿਸ ਸ਼ਹਿਰ, ਖੇਤਰ ਜਾਂ ਜ਼ਿਲ੍ਹੇ ਵਿੱਚ ਖੋਜ ਕਰਨੀ ਚਾਹੀਦੀ ਹੈ?'",
+        "failure_prompt": "'ਮੈਂ ਇਸ ਸਮੇਂ ਸਿਹਤ ਕੇਂਦਰ ਦੀ ਜਾਣਕਾਰੀ ਨਹੀਂ ਦੇਖ ਪਾ ਰਿਹਾ ਹਾਂ। ਕਿਰਪਾ ਕਰਕੇ ਕੁਝ ਸਮੇਂ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।'"
+    },
+    "Spanish": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Spanish.",
+        "examples": "- User: 'Tengo dolor de cabeza desde ayer.' -> Reply: 'Entiendo que tiene dolor de cabeza desde ayer. ¿El dolor es continuo o va y viene?'\n- User: 'Tengo fiebre y dolor de cuerpo.' -> Reply: 'Comprendo. Tiene fiebre con dolor de cuerpo. ¿Ha revisado su temperatura?'",
+        "consent_example": "'¿Puedo guardar su idioma de preferencia y su meta de pasos?'",
+        "escalation_consent_example": "'Sus síntomas podrían ser serios / No puedo diagnosticar condiciones médicas. Puedo crear una solicitud de soporte de atención médica humana. Con su permiso, compartiré sus detalles. ¿Le gustaría que proceda?'",
+        "lookup_unclear_prompt": "'Escuché Ponda, Goa. ¿Es eso lo que quería decir?' o '¿Quería decir Dehradun?'",
+        "no_location_prompt": "'¿En qué ciudad, área o distrito debo buscar?'",
+        "failure_prompt": "'No puedo acceder a los datos del centro de salud en este momento. Por favor, inténtelo de nuevo en breve.'"
+    },
+    "French": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in French.",
+        "examples": "- User: 'J\\'ai mal à la tête depuis hier.' -> Reply: 'Je comprends que vous avez mal à la tête depuis hier. La douleur est-elle continue ou intermittente?'\n- User: 'J\\'ai de la fièvre et des courbatures.' -> Reply: 'Je vois. Vous avez de la fièvre avec des courbatures. Avez-vous vérifié votre température?'",
+        "consent_example": "'Puis-je enregistrer votre langue préférée et votre objectif de pas?'",
+        "escalation_consent_example": "'Vos symptômes peuvent être graves / Je ne peux pas diagnostiquer de conditions médicales. Je peux créer une demande de soutien de santé humaine. Avec votre permission, je partagerai les détails. Souhaitez-vous que je procède?'",
+        "lookup_unclear_prompt": "'J\\'ai entendu Ponda, Goa. Est-ce ce que vous vouliez dire?' ou 'Vouliez-vous dire Dehradun?'",
+        "no_location_prompt": "'Dans quelle ville, région ou district dois-je chercher?'",
+        "failure_prompt": "'Je ne peux pas accéder aux données sur les établissements de santé pour le moment. Veuillez réessayer sous peu.'"
+    },
+    "German": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in German.",
+        "examples": "- User: 'Ich habe seit gestern Kopfschmerzen.' -> Reply: 'Ich verstehe, dass Sie seit gestern Kopfschmerzen haben. Ist der Schmerz dauerhaft oder kommt und geht er?'\n- User: 'Ich habe Fieber und Gliederschmerzen.' -> Reply: 'Ich verstehe. Sie haben Fieber und Gliederschmerzen. Haben Sie Ihre Temperatur kontrolliert?'",
+        "consent_example": "'Darf ich Ihre bevorzugte Sprache und Ihr Schrittziel speichern?'",
+        "escalation_consent_example": "'Ihre Symptome könnten ernst sein / Ich kann keine medizinischen Diagnosen stellen. Ich kann eine menschliche Support-Anfrage erstellen. Mit Ihrer Erlaubnis werde ich die Details teilen. Möchten Sie, dass ich fortfahre?'",
+        "lookup_unclear_prompt": "'Ich habe Ponda, Goa gehört. Haben Sie das gemeint?' oder 'Meinten Sie Dehradun?'",
+        "no_location_prompt": "'In welcher Stadt, welchem Gebiet oder welchem Bezirk soll ich suchen?'",
+        "failure_prompt": "'Ich kann derzeit nicht auf die Daten der Gesundheitseinrichtung zugreifen. Bitte versuchen Sie es in Kürze noch einmal.'"
+    },
+    "Italian": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Italian.",
+        "examples": "- User: 'Ho mal di testa da ieri.' -> Reply: 'Capisco che ha mal di testa da ieri. Il dolore è continuo o va e viene?'\n- User: 'Ho la febbre e dolori muscolari.' -> Reply: 'Capisco. Ha la febbre e dolori muscolari. Ha controllato la temperatura?'",
+        "consent_example": "'Posso salvare la tua lingua preferita e il tuo obiettivo di passi?'",
+        "escalation_consent_example": "'I tuoi sintomi potrebbero essere gravi / Non posso diagnosticare condizioni mediche. Posso creare una richiesta di supporto sanitario umano. Con la tua autorizzazione, condividerò i dettagli. Desideri che proceda?'",
+        "lookup_unclear_prompt": "'Ho sentito Ponda, Goa. È quello che volevi dire?' o 'Intendevi Dehradun?'",
+        "no_location_prompt": "'In quale città, area o distretto devo cercare?'",
+        "failure_prompt": "'Al momento non posso accedere ai dati delle strutture sanitarie. Riprova a breve.'"
+    },
+    "Portuguese": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Portuguese.",
+        "examples": "- User: 'Estou com dor de cabeça desde ontem.' -> Reply: 'Entendo que está com dor de cabeça desde ontem. A dor é contínua ou vai e vem?'\n- User: 'Tenho febre e dores no corpo.' -> Reply: 'Compreendo. Está com febre e dores no corpo. Já mediu a sua temperatura?'",
+        "consent_example": "'Posso salvar seu idioma de preferência e sua meta de passos?'",
+        "escalation_consent_example": "'Seus sintomas podem ser graves / Não posso diagnosticar condições médicas. Posso criar uma solicitação de suporte de saúde humana. Com a sua permissão, compartilharei os detalhes. Deseja que eu prossiga?'",
+        "lookup_unclear_prompt": "'Ouvi Ponda, Goa. Era isso o que queria dizer?' ou 'Queria dizer Dehradun?'",
+        "no_location_prompt": "'Em qual cidade, área ou distrito devo pesquisar?'",
+        "failure_prompt": "'Não consigo acessar os dados do centro de saúde no momento. Por favor, tente novamente em breve.'"
+    },
+    "Japanese": {
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Japanese.",
+        "examples": "- User: '昨日から頭痛がします。' -> Reply: '昨日から頭痛がするのですね。痛みは持続していますか、それとも断続的ですか？'\n- User: '熱があって体が痛いです。' -> Reply: '熱と体の痛みがあるのですね。体温は測りましたか？'",
+        "consent_example": "'お好みの言語と歩数目標を保存してもよろしいですか？'",
+        "escalation_consent_example": "'症状が深刻な可能性があります / 医師ではないため病状の診断はできません。人間のヘルスケアサポートリクエストを作成できます。同意をいただければ情報を共有します。進めてもよろしいですか？'",
+        "lookup_unclear_prompt": "'ポンガ、ゴアと聞こえました。その場所でよろしいですか？' または 'デラドゥンのことでしょうか？'",
+        "no_location_prompt": "'どの都市、地域、または地区を検索すればよいですか？'",
+        "failure_prompt": "'現在、医療施設のデータにアクセスできません。しばらくしてからもう一度お試しください。'"
+    }
+}
+
+SPECIALIST_LOCALIZATION = {
+    "English": {
+        "intro": "Hi, I'm Aarogyam's clinic and appointment specialist. I can help you find healthcare facilities and understand your appointment options.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in English. Do NOT use any Hindi, Hinglish, or Devanagari words under any circumstances.",
+        "examples": "- User: 'I need a clinic near me.' -> Reply: 'I can help you find a suitable clinic. What location should I search around?'\n- User: 'How do I book an appointment?' -> Reply: 'I can guide you with appointment booking options. Which facility are you looking to book?'",
+        "escalation_consent_example": "'Your symptoms might be serious / I cannot diagnose medical conditions. I can create a human healthcare support request for you. Would you like me to proceed?'",
+        "lookup_unclear_prompt": "'I heard Ponda, Goa. Is that what you meant?'",
+        "no_location_prompt": "'Which city, area, or district should I search?'",
+        "failure_prompt": "'I\\'m unable to access the healthcare facility data right now. Please try again shortly.'"
+    },
+    "Hindi": {
+        "intro": "नमस्ते, मैं आरोग्यम की क्लिनिक और अपॉइंटमेंट विशेषज्ञ हूँ। मैं स्वास्थ्य केंद्रों को खोजने और आपके अपॉइंटमेंट के विकल्पों को समझने में आपकी मदद कर सकती हूँ।",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Hindi using Devanagari script. Do NOT use English or Hinglish words.",
+        "examples": "- User: 'मुझे अपने पास कोई क्लिनिक ढूंढना है।' -> Reply: 'मैं उपयुक्त क्लिनिक खोजने में मदद कर सकती हूँ। आप किस स्थान के पास खोजना चाहते हैं?'\n- User: 'अपॉइंटमेंट कैसे बुक करूँ?' -> Reply: 'मैं अपॉइंटमेंट बुक करने में आपका मार्गदर्शन कर सकती हूँ। आप किस केंद्र के लिए बुकिंग करना चाहते हैं?'",
+        "escalation_consent_example": "'आपके लक्षण गंभीर हो सकते हैं / मैं चिकित्सा स्थिति का निदान नहीं कर सकती। मैं आपके लिए मानव स्वास्थ्य सहायता अनुरोध बना सकती हूँ। क्या आप चाहते हैं कि मैं आगे बढ़ूँ?'",
+        "lookup_unclear_prompt": "'मैंने पोंडा, गोवा सुना। क्या आपका यही मतलब था?'",
+        "no_location_prompt": "'आप किस शहर, क्षेत्र या जिले में खोजना चाहते हैं?'",
+        "failure_prompt": "'मैं इस समय स्वास्थ्य केंद्र की जानकारी नहीं देख पा रही हूँ। कृपया कुछ समय बाद फिर से प्रयास करें।'",
+    },
+    "Hinglish": {
+        "intro": "Hi, main Aarogyam ki clinic aur appointment specialist hoon. Main healthcare facilities dhoondhne aur aapke appointment options ko samajhne mein aapki help kar sakti hoon.",
+        "lang_instruction": "Language: You MUST respond and speak in Hinglish (a natural mix of Hindi and English written in Latin script).",
+        "examples": "- User: 'Mujhe clinic dhoondhna hai near me.' -> Reply: 'Main clinic dhoondhne mein aapki help kar sakti hoon. Aap kis location ke paas search karna chahte hain?'\n- User: 'Appointment kaise book karein?' -> Reply: 'Main appointment book karne mein aapko guide kar sakti hoon. Aap kis facility ke liye booking karna chahte hain?'",
+        "escalation_consent_example": "'Aapke symptoms serious ho sakte hain / Main medical condition diagnose nahi kar sakta. Main aapke liye ek human healthcare support request create kar sakta hoon. Kya aap chahte hain ki main proceed karoon?'",
+        "lookup_unclear_prompt": "'Mujhe Ponda, Goa sunai diya. Kya aapka wahi matlab tha?'",
+        "no_location_prompt": "'Aap kis city, area, ya district mein search karna chahte hain?'",
+        "failure_prompt": "'Main abhi healthcare facilities ki details nahi dekh paa rahi hoon. Please thodi der baad try karein.'",
+    },
+    "Marathi": {
+        "intro": "नमस्कार, मी आरोग्यमचा क्लिनिक आणि अपॉइंटमेंट तज्ज्ञ आहे. मी तुम्हाला आरोग्य केंद्रे शोधण्यात मदत करू शकतो.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Marathi using Devanagari script.",
+        "examples": "- User: 'मला जवळ क्लिनिक हवे आहे.' -> Reply: 'मी तुम्हाला योग्य क्लिनिक शोधण्यात मदत करू शकतो. कोणत्या भागाजवळ शोधू?'\n- User: 'मी अपॉइंटमेंट कशी बुक करू?' -> Reply: 'मी तुम्हाला अपॉइंटमेंट बुक करण्यात मदत करू शकतो. तुम्ही कोणत्या केंद्रासाठी बुकिंग करू इच्छिता?'",
+        "escalation_consent_example": "'तुमची लक्षणे गंभीर असू शकतात. मी मानवी आरोग्य सेवा विनंती तयार करू का?'",
+        "lookup_unclear_prompt": "'मी पोंडा, गोवा ऐकले. तुम्हाला तेच हवे होते का?'",
+        "no_location_prompt": "'मी कोणत्या शहरात किंवा जिल्ह्यात शोधू?'",
+        "failure_prompt": "'मला सध्या आरोग्य केंद्राची माहिती मिळू शकत नाही. कृपया थोड्या वेळाने प्रयत्न करा.'",
+    },
+    "Gujarati": {
+        "intro": "નમસ્તે, હું આરોગ્યમનો ક્લિનિક અને એપોઇન્ટમેન્ટ નિષ્ણાત છું. હું તમને હેલ્થકેર ફેસિલિટીઝ શોધવામાં મદદ કરી શકું છું.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Gujarati using Gujarati script.",
+        "examples": "- User: 'મને નજીકમાં ક્લિનિક જોઈએ છે.' -> Reply: 'હું તમને યોગ્ય ક્લિનિક શોધવામાં મદદ કરી શકું છું. તમે કયા વિસ્તારમાં શોધવા માંગો છો?'\n- User: 'હું એપોઇન્ટમેન્ટ કેવી રીતે બુક કરું?' -> Reply: 'હું તમને એપોઇન્ટમેન્ટ બુકિંગમાં માર્ગદર્શન આપી શકું છું. તમે કઈ સુવિધા માટે બુક કરવા માંગો છો?'",
+        "escalation_consent_example": "'તમારા લક્ષણો ગંભીર હોઈ શકે છે. હું સપોર્ટ રિક્વેસ્ટ બનાવી શકું છું. શું હું આગળ વધું?'",
+        "lookup_unclear_prompt": "'મેં પોંડા, ગોવા સાંભળ્યું. શું તમારો એ જ મતલબ હતો?'",
+        "no_location_prompt": "'હું કયા શહેરમાં શોધું?'",
+        "failure_prompt": "'અત્યારે હેલ્થકેર ફેસિલિટી ડેટા એક્સેસ થઈ શકતો નથી. કૃપા કરીને થોડીવાર પછી પ્રયાસ કરો.'",
+    },
+    "Tamil": {
+        "intro": "வணக்கம், நான் ஆரோக்கியத்தின் கிளினிக் மற்றும் நியமன நிபுணர். சுகாதார வசதிகளைக் கண்டறிய நான் உங்களுக்கு உதவ முடியும்.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Tamil using Tamil script.",
+        "examples": "- User: 'எனக்கு அருகில் ஒரு கிளினிக் தேவை.' -> Reply: 'பொருத்தமான கிளினிக்கைக் கண்டறிய நான் உங்களுக்கு உதவ முடியும். எந்தப் பகுதியில் தேட வேண்டும்?'\n- User: 'அப்பாயிண்ட்மெண்ட் எப்படி பதிவு செய்வது?' -> Reply: 'அப்பாயிண்ட்மெண்ட் பதிவு செய்யும் விருப்பங்களை நான் உங்களுக்குக் காட்ட முடியும். எந்த வசதியை நீங்கள் பதிவு செய்ய வேண்டும்?'",
+        "escalation_consent_example": "'உங்கள் அறிகுறிகள் தீவிரமாக இருக்கலாம். நான் மனித சுகாதார ஆதரவு கோரிக்கையை உருவாக்கலாமா?'",
+        "lookup_unclear_prompt": "'நான் போண்டா, கோவா என்று கேட்டேன். அதைத்தான் சொன்னீர்களா?'",
+        "no_location_prompt": "'நான் எந்த நகரம் அல்லது மாவட்டத்தில் தேட வேண்டும்?'",
+        "failure_prompt": "'என்னால் இப்போது சுகாதார வசதித் தரவை அணுக முடியவில்லை. சிறிது நேரம் கழித்து மீண்டும் முயற்சிக்கவும்.'"
+    },
+    "Telugu": {
+        "intro": "నమస్తే, నేను ఆరోగ్యమ్ క్లినిక్ మరియు అపాయింట్‌మెంట్ స్పెషలిస్ట్‌ని. నేను మీకు ఆరోగ్య సౌకర్యాలను కనుగొనడంలో సహాయపడగలను.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Telugu using Telugu script.",
+        "examples": "- User: 'నాకు దగ్గరలో క్లినిక్ కావాలి.' -> Reply: 'నేను మీకు తగిన క్లినిక్‌ని కనుగొనడంలో సహాయపడగలను. ఏ ప్రాంతంలో వెతకాలి?'\n- User: 'నేను అపాయింట్‌మెంట్ ఎలా బుక్ చేసుకోవాలి?' -> Reply: 'నేను మీకు అపాయింట్‌మెంట్ బుకింగ్ ఆప్షన్లను చూపగలను. మీరు ఏ సదుపాయంలో బుక్ చేసుకోవాలి?'",
+        "escalation_consent_example": "'మీ లక్షణాలు తీవ్రంగా ఉండవచ్చు. నేను హ్యూమన్ హెల్త్‌కేర్ సపోర్ట్ రిక్వెస్ట్ క్రియేట్ చేయాలా?'",
+        "lookup_unclear_prompt": "'నేను పోండా, గోవా అని విన్నాను. మీ ఉద్దేశం అదేనా?'",
+        "no_location_prompt": "'నేను ఏ నగరం లేదా జిల్లాలో వెతకాలి?'",
+        "failure_prompt": "'నేను ఇప్పుడు హెల్త్‌కేర్ సదుపాయాల డేటాను యాక్సెస్ చేయలేకపోతున్నాను. దయచేసి కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.'"
+    },
+    "Kannada": {
+        "intro": "ನಮಸ್ತೆ, ನಾನು ಆರೋಗ್ಯಂನ ಕ್ಲಿನಿಕ್ ಮತ್ತು ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ತಜ್ಞ. ನಾನು ನಿಮಗೆ ಆರೋಗ್ಯ ಸೌಲಭ್ಯಗಳನ್ನು ಹುಡುಕಲು ಸಹಾಯ ಮಾಡಬಲ್ಲೆ.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Kannada using Kannada script.",
+        "examples": "- User: 'ನನಗೆ ಹತ್ತಿರದಲ್ಲಿ ಕ್ಲಿನಿಕ್ ಬೇಕು.' -> Reply: 'ನಾನು ನಿಮಗೆ ಸೂಕ್ತವಾದ ಕ್ಲಿನಿಕ್ ಹುಡುಕಲು ಸಹಾಯ ಮಾಡಬಲ್ಲೆ. ಯಾವ ಪ್ರದೇಶದಲ್ಲಿ ಹುಡುಕಬೇಕು?'\n- User: 'ನಾನು ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಬುಕ್ ಮಾಡುವುದು ಹೇಗೆ?' -> Reply: 'ನಾನು ನಿಮಗೆ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಬುಕಿಂಗ್ ಆಯ್ಕೆಗಳನ್ನು ತೋರಿಸಬಲ್ಲೆ. ಯಾವ ಸೌಲಭ್ಯವನ್ನು ಬುಕ್ ಮಾಡಲು ಬಯಸುತ್ತೀರಿ?'",
+        "escalation_consent_example": "'ನಿಮ್ಮ ರೋಗಲಕ್ಷಣಗಳು ಗಂಭೀರವಾಗಿರಬಹುದು. ನಾನು ಹ್ಯೂಮನ್ ಹೆಲ್ತ್‌ಕೇರ್ ಬೆಂಬಲ ವಿನಂತಿಯನ್ನು ರಚಿಸಬೇಕೇ?'",
+        "lookup_unclear_prompt": "'ನಾನು ಪೋಂಡಾ, ಗೋವಾ ಎಂದು ಕೇಳಿದೆ. ನಿಮ್ಮ ಉದ್ದೇಶ ಅದೇ ಆಗಿತ್ತೇ?'",
+        "no_location_prompt": "'ನಾನು ಯಾವ ನಗರ ಅಥವಾ ಜಿಲ್ಲೆಯಲ್ಲಿ ಹುಡುಕಬೇಕು?'",
+        "failure_prompt": "'ನನಗೆ ಈಗ ಆರೋಗ್ಯ ಸೌಲಭ್ಯದ ಡೇಟಾವನ್ನು ಪ್ರವೇಶಿಸಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲ. ದಯವಿಟ್ಟು ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.'"
+    },
+    "Bengali": {
+        "intro": "নমস্তে, আমি আরোগ্যম এর ক্লিনিক এবং অ্যাপয়েন্টমেন্ট বিশেষজ্ঞ। আমি আপনাকে স্বাস্থ্যসেবা সুবিধা খুঁজে পেতে সাহায্য করতে পারি।",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Bengali using Bengali script.",
+        "examples": "- User: 'আমার কাছে একটি ক্লিনিক দরকার।' -> Reply: 'আমি আপনাকে একটি উপযুক্ত ক্লিনিক খুঁজে পেতে সাহায্য করতে পারি। কোন এলাকায় খুঁজব?'\n- User: 'আমি কীভাবে অ্যাপয়েন্টমেন্ট বুক করব?' -> Reply: 'আমি আপনাকে অ্যাপয়েন্টমেন্ট বুকিংয়ের বিকল্পগুলিতে গাইড করতে পারি। কোন সুবিধার জন্য বুকিং করতে চান?'",
+        "escalation_consent_example": "'আপনার লক্ষণগুলি গুরুতর হতে পারে। আমি একটি মানব স্বাস্থ্যসেবা সহায়তার অনুরোধ তৈরি করতে পারি। আমি কি এগিয়ে যাব?'",
+        "lookup_unclear_prompt": "'আমি পোন্ডা, গোয়া শুনেছি। আপনি কি এটাই বলতে চেয়েছেন?'",
+        "no_location_prompt": "'আমি কোন শহর বা জেলায় খুঁজব?'",
+        "failure_prompt": "'আমি এখন স্বাস্থ্যসেবা সুবিধার তথ্য অ্যাক্সেস করতে পারছি না। অনুগ্রহ করে একটু পরে আবার চেষ্টা করুন।'"
+    },
+    "Malayalam": {
+        "intro": "നമസ്തേ, ഞാൻ ആരോഗ്യത്തിന്റെ ക്ലിനിക്, അപ്പോയിന്റ്മെന്റ് വിദഗ്ദ്ധനാണ്. ആരോഗ്യ കേന്ദ്രങ്ങൾ കണ്ടെത്താൻ ഞാൻ നിങ്ങളെ സഹായിക്കാം.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Malayalam using Malayalam script.",
+        "examples": "- User: 'എനിക്ക് അരികിൽ ഒരു ക്ലിനിക് വേണം.' -> Reply: 'ഞാൻ നിങ്ങൾക്ക് അനുയോജ്യമായ ക്ലിനിക് കണ്ടെത്താൻ സഹായിക്കാം. ഏത് പ്രദേശത്താണ് തിരയേണ്ടത്?'\n- User: 'അപ്പോയിന്റ്മെന്റ് എങ്ങനെ ബുക്ക് ചെയ്യാം?' -> Reply: 'ഞാൻ അപ്പോയിന്റ്മെന്റ് ബുക്കിംഗ് വിവരങ്ങൾ നൽകാം. ഏത് കേന്ദ്രമാണ് ബുക്ക് ചെയ്യേണ്ടത്?'",
+        "escalation_consent_example": "'നിങ്ങളുടെ ലക്ഷണങ്ങൾ ഗുരുതരമായേക്കാം. ഞാൻ ഒരു സപ്പോർട്ട് അഭ്യർത്ഥന സൃഷ്ടിക്കട്ടെയോ?'",
+        "lookup_unclear_prompt": "'ഞാൻ പോണ്ട, ഗോവ എന്ന് കേട്ടു. താങ്കൾ അത് തന്നെയാണോ ഉദ്ദേശിച്ചത്?'",
+        "no_location_prompt": "'ഞാൻ ഏത് നഗരത്തിലാണ് തിരയേണ്ടത്?'",
+        "failure_prompt": "'എനിക്ക് ഇപ്പോൾ ആരോഗ്യ കേന്ദ്രങ്ങളുടെ വിവരങ്ങൾ ലഭ്യമല്ല. ദയവായി കുറച്ചു കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.'"
+    },
+    "Punjabi": {
+        "intro": "ਨਮਸਤੇ, ਮੈਂ ਆਰੋਗਿਆ ਦਾ ਕਲੀਨਿਕ ਅਤੇ ਅਪਾਇੰਟਮੈਂਟ ਮਾਹਰ ਹਾਂ। ਮੈਂ ਤੁਹਾਨੂੰ ਸਿਹਤ ਸਹੂਲਤਾਂ ਲੱਭਣ ਵਿੱਚ ਮਦਦ ਕਰ ਸਕਦਾ ਹਾਂ।",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Punjabi using Gurmukhi script.",
+        "examples": "- User: 'ਮੈਨੂੰ ਨੇੜੇ ਕੋਈ ਕਲੀਨਿਕ ਚਾਹੀਦਾ ਹੈ।' -> Reply: 'ਮੈਂ ਤੁਹਾਨੂੰ ਸਹੀ ਕਲੀਨਿਕ ਲੱਭਣ ਵਿੱਚ ਮਦਦ ਕਰ ਸਕਦਾ ਹਾਂ। ਕਿਸ ਇਲਾਕੇ ਵਿੱਚ ਲੱਭਣਾ ਹੈ?'\n- User: 'ਮੈਂ ਅਪਾਇੰਟਮੈਂਟ ਕਿਵੇਂ ਬੁੱਕ ਕਰਾਂ?' -> Reply: 'ਮੈਂ ਤੁਹਾਨੂੰ ਅਪਾਇੰਟਮੈਂਟ ਬੁਕਿੰਗ ਦੇ ਤਰੀਕੇ ਦੱਸ ਸਕਦਾ ਹਾਂ। ਕਿਸ ਸਹੂਲਤ ਲਈ ਬੁਕਿੰਗ ਕਰਨੀ ਹੈ?'",
+        "escalation_consent_example": "'ਤੁਹਾਡੇ ਲੱਛਣ ਗੰਭੀਰ ਹੋ ਸਕਦੇ ਹਨ। ਕੀ ਮੈਂ ਸਹਾਇਤਾ ਬੇਨਤੀ ਬਣਾਵਾਂ?'",
+        "lookup_unclear_prompt": "'ਮੈਂ ਪੋਂਡਾ, ਗੋਆ ਸੁਣਿਆ ਹੈ। ਕੀ ਤੁਹਾਡਾ ਇਹੀ ਮਤਲਬ ਸੀ?'",
+        "no_location_prompt": "'ਮੈਂ ਕਿਸ ਸ਼ਹਿਰ ਵਿੱਚ ਖੋਜ ਕਰਾਂ?'",
+        "failure_prompt": "'ਮੈਂ ਇਸ ਸਮੇਂ ਸਿਹਤ ਕੇਂਦਰ ਦੀ ਜਾਣਕਾਰੀ ਨਹੀਂ ਦੇਖ ਪਾ ਰਿਹਾ ਹਾਂ। ਕਿਰਪਾ ਕਰਕੇ ਕੁਝ ਸਮੇਂ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।'"
+    },
+    "Spanish": {
+        "intro": "Hola, soy el especialista en clínicas y citas de Aarogyam. Puedo ayudarlo a encontrar centros de salud.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Spanish.",
+        "examples": "- User: 'Necesito una clínica cerca de mí.' -> Reply: 'Puedo ayudarlo a encontrar una clínica adecuada. ¿Alrededor de qué ubicación busco?'\n- User: '¿Cómo reservo una cita?' -> Reply: 'Puedo guiarlo con las opciones de reserva de citas. ¿Para qué centro desea reservar?'",
+        "escalation_consent_example": "'Sus síntomas podrían ser serios. ¿Le gustaría que proceda con una solicitud de soporte?'",
+        "lookup_unclear_prompt": "'Escuché Ponda, Goa. ¿Es eso lo que quería decir?'",
+        "no_location_prompt": "'¿En qué ciudad o distrito debo buscar?'",
+        "failure_prompt": "'No puedo acceder a los datos del centro de salud en este momento. Por favor, inténtelo de nuevo en breve.'"
+    },
+    "French": {
+        "intro": "Bonjour, je suis le spécialiste des cliniques et des rendez-vous d'Aarogyam. Je peux vous aider à trouver des établissements.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in French.",
+        "examples": "- User: 'J\\'ai besoin d\\'une clinique près de chez moi.' -> Reply: 'Je peux vous aider à trouver une clinique. Autour de quel endroit dois-je chercher?'\n- User: 'Comment prendre un rendez-vous?' -> Reply: 'Je peux vous guider pour les options de réservation. Quel établissement cherchez-vous?'",
+        "escalation_consent_example": "'Vos symptômes peuvent être graves. Souhaitez-vous que je crée une demande de soutien?'",
+        "lookup_unclear_prompt": "'J\\'ai entendu Ponda, Goa. Est-ce ce que vous vouliez dire?'",
+        "no_location_prompt": "'Dans quelle ville ou district dois-je chercher?'",
+        "failure_prompt": "'Je ne peux pas accéder aux données pour le moment. Veuillez réessayer sous peu.'"
+    },
+    "German": {
+        "intro": "Hallo, ich bin der Klinik- und Terminspezialist von Aarogyam. Ich kann Ihnen helfen, Einrichtungen zu finden.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in German.",
+        "examples": "- User: 'Ich brauche eine Klinik in meiner Nähe.' -> Reply: 'Ich kann Ihnen helfen, eine Klinik zu finden. In welcher Gegend soll ich suchen?'\n- User: 'Wie buche ich einen Termin?' -> Reply: 'Ich kann Sie durch die Terminbuchungsoptionen führen. Welche Einrichtung möchten Sie buchen?'",
+        "escalation_consent_example": "'Ihre Symptome könnten ernst sein. Soll ich eine Support-Anfrage erstellen?'",
+        "lookup_unclear_prompt": "'Ich habe Ponda, Goa gehört. Haben Sie das gemeint?'",
+        "no_location_prompt": "'In welcher Stadt oder welchem Bezirk soll ich suchen?'",
+        "failure_prompt": "'Ich kann derzeit nicht auf die Daten zugreifen. Bitte versuchen Sie es in Kürze noch einmal.'"
+    },
+    "Italian": {
+        "intro": "Ciao, sono lo specialista clinico e degli appuntamenti di Aarogyam. Posso aiutarti a trovare strutture.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Italian.",
+        "examples": "- User: 'Ho bisogno di una clinica vicino a me.' -> Reply: 'Posso aiutarti a trovare una clinica. In quale zona dovrei cercare?'\n- User: 'Come posso prenotare un appuntamento?' -> Reply: 'Posso guidarti sulle opzioni di prenotazione. Quale struttura vorresti prenotare?'",
+        "escalation_consent_example": "'I tuoi sintomi potrebbero essere gravi. Desideri che crei una richiesta di supporto?'",
+        "lookup_unclear_prompt": "'Ho sentito Ponda, Goa. È quello che volevi dire?'",
+        "no_location_prompt": "'In quale città o distretto devo cercare?'",
+        "failure_prompt": "'Al momento non posso accedere ai dati. Riprova a breve.'"
+    },
+    "Portuguese": {
+        "intro": "Olá, sou o especialista em clínicas e consultas da Aarogyam. Posso ajudá-lo a encontrar instalações.",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Portuguese.",
+        "examples": "- User: 'Preciso de uma clínica perto de mim.' -> Reply: 'Posso ajudá-lo a encontrar uma clínica adequada. Em qual região busco?'\n- User: 'Como posso marcar uma consulta?' -> Reply: 'Posso orientar você nas opções de marcação. Para qual centro deseja agendar?'",
+        "escalation_consent_example": "'Seus sintomas podem ser graves. Deseja que eu crie uma solicitação de suporte?'",
+        "lookup_unclear_prompt": "'Ouvi Ponda, Goa. Era isso o que queria dizer?'",
+        "no_location_prompt": "'Em qual cidade ou distrito devo pesquisar?'",
+        "failure_prompt": "'Não consigo acessar os dados no momento. Por favor, tente novamente em breve.'"
+    },
+    "Japanese": {
+        "intro": "こんにちは。私はアローギャムのクリニック・予約スペシャリストです。医療機関探しをお手伝いします。",
+        "lang_instruction": "Language: You MUST respond and speak ENTIRELY in Japanese.",
+        "examples": "- User: '近くのクリニックを探しています。' -> Reply: 'クリニック探しをお手伝いします。どの地域でお探しですか？'\n- User: '予約方法を教えてください。' -> Reply: '予約手順をご案内します。どの医療機関の予約をご希望ですか？'",
+        "escalation_consent_example": "'症状が深刻な可能性があります。サポートリクエストを作成しますか？'",
+        "lookup_unclear_prompt": "'ポンガ、ゴアと聞こえました。その場所でよろしいですか？'",
+        "no_location_prompt": "'どの都市や地域を検索すればよいですか？'",
+        "failure_prompt": "'現在、医療施設のデータにアクセスできません。しばらくしてからもう一度お試しください。'"
+    }
+}
+
 def get_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -> str:
     # Build language-specific constraints and prompt structures
-    if lang == "English":
-        lang_instruction = "Language: You MUST respond and speak ENTIRELY in English. Do NOT use any Hindi, Hinglish, or Devanagari words under any circumstances."
-        examples = (
-            "Examples:\n"
-            "- User: 'I have headache since yesterday.' -> Reply: 'I understand you have had a headache since yesterday. Is the pain continuous or does it come and go?'\n"
-            "- User: 'I have fever and body pain.' -> Reply: 'I see. You have a fever along with body pain. Have you checked your temperature?'"
-        )
-        consent_example = "'Can I save your preferred language and step goal?'"
-        escalation_consent_example = (
-            "'Your symptoms might be serious / I cannot diagnose medical conditions. I can create a human healthcare support request for you. "
-            "With your permission, I will share your user ID, a summary of your problem, what I checked, your urgency level, language, and preferred follow-up method. "
-            "Would you like me to proceed?'"
-        )
-        lookup_unclear_prompt = (
-            "'I heard Ponda, Goa. Is that what you meant?' or 'Did you mean Dehradun?'"
-        )
-        no_location_prompt = "'Which city, area, or district should I search?'"
-        failure_prompt = "'I\\'m unable to access the healthcare facility data right now. Please try again shortly.'"
-    elif lang == "Hindi":
-        lang_instruction = "Language: You MUST respond and speak ENTIRELY in Hindi using Devanagari script. Do NOT use English or Hinglish words."
-        examples = (
-            "Examples:\n"
-            "- User: 'मुझे कल से सिरदर्द है।' -> Reply: 'समझ गया। आपको कल से सिरदर्द है। क्या सिरदर्द लगातार हो रहा है या कभी-कभी?'\n"
-            "- User: 'मुझे बुखार और शरीर में दर्द है।' -> Reply: 'मैं समझ सकता हूँ। आपको बुखार के साथ शरीर में दर्द भी है। क्या आपने अपना तापमान चेक किया है?'"
-        )
-        consent_example = "'क्या मैं आपकी पसंदीदा भाषा और स्टेप गोल सेव कर सकती हूँ?'"
-        escalation_consent_example = (
-            "'आपके लक्षण गंभीर हो सकते हैं / मैं चिकित्सा स्थिति का निदान नहीं कर सकती। मैं आपके लिए मानव स्वास्थ्य सहायता अनुरोध बना सकती हूँ। "
-            "आपकी अनुमति से, मैं आपकी यूजर आईडी, समस्या का सारांश, जो मैंने जांचा है, आपकी तत्परता स्तर (urgency), भाषा और पसंदीदा संपर्क विधि साझा करूँगी। "
-            "क्या आप चाहते हैं कि मैं आगे बढ़ूँ?'"
-        )
-        lookup_unclear_prompt = (
-            "'मैंने पोंडा, गोवा सुना। क्या आपका यही मतलब था?' या 'क्या आपका मतलब देहरादून था?'"
-        )
-        no_location_prompt = "'आप किस शहर, क्षेत्र या जिले में खोजना चाहते हैं?'"
-        failure_prompt = "'मैं इस समय स्वास्थ्य केंद्र की जानकारी नहीं देख पा रही हूँ। कृपया कुछ समय बाद फिर से प्रयास करें।'"
-    else:  # Hinglish
-        lang_instruction = "Language: You MUST respond and speak in Hinglish (a natural mix of Hindi and English written in Latin script)."
-        examples = (
-            "Examples:\n"
-            "- User: 'Mujhe headache hai since yesterday.' -> Reply: 'Samajh gaya. Aapko kal se headache hai. Kya headache continuous hai ya kabhi-kabhi ho raha hai?'\n"
-            "- User: 'I have fever but body pain bhi ho raha hai.' -> Reply: 'I understand. Aapko fever ke saath body pain bhi ho raha hai. Have you checked your temperature?'"
-        )
-        consent_example = (
-            "'Kya main aapki preferred language aur step goal save kar sakta hoon?'"
-        )
-        escalation_consent_example = (
-            "'Aapke symptoms serious ho sakte hain / Main medical condition diagnose nahi kar sakta. Main aapke liye ek human healthcare support request create kar sakta hoon. "
-            "Aapki permission se, main aapki user ID, problem summary, jo maine check kiya hai, aapki urgency level, language aur preferred follow-up method share karunga. "
-            "Kya aap chahte hain ki main proceed karoon?'"
-        )
-        lookup_unclear_prompt = "'Mujhe Ponda, Goa sunai diya. Kya aapka wahi matlab tha?' or 'Kya aapka matlab Dehradun tha?'"
-        no_location_prompt = (
-            "'Aap kis city, area, ya district mein search karna chahte hain?'"
-        )
-        failure_prompt = "'Main abhi healthcare facilities ki details nahi dekh paa rahi hoon. Please thodi der baad try karein.'"
+    config = LOCALIZATION.get(lang, LOCALIZATION["Hinglish"])
+    lang_instruction = config["lang_instruction"]
+    examples = f"Examples:\n{config['examples']}"
+    consent_example = config["consent_example"]
+    escalation_consent_example = config["escalation_consent_example"]
+    lookup_unclear_prompt = config["lookup_unclear_prompt"]
+    no_location_prompt = config["no_location_prompt"]
+    failure_prompt = config["failure_prompt"]
 
     if is_guest:
         memory_instruction = (
@@ -119,6 +403,8 @@ def get_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -
 
     prompt = (
         f"You are Aarogyam, an AI Health & Wellness Voice Assistant. You are NOT a doctor and never claim to replace one.\n"
+        f"You MUST support dynamic language switching. Respond in the language the user is speaking to you. If the user explicitly asks to switch language, switch and respond in that language from now on.\n"
+        f"If the user speaks code-mixed language (e.g. Hinglish or Marathi-English mix), respond in a similar natural code-mixed style. Do not force them back to English.\n"
         f"{lang_instruction}\n"
         f"{examples}\n"
         f"Flow Rules:\n"
@@ -154,9 +440,6 @@ def get_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -
     return prompt
 
 
-SYSTEM_PROMPT = get_system_prompt("Hinglish")
-
-
 def update_assistant_prompt(assistant, lang: str) -> None:
     is_guest = getattr(assistant, "is_guest", False)
     is_sip = getattr(assistant, "is_sip", False)
@@ -169,51 +452,14 @@ def update_assistant_prompt(assistant, lang: str) -> None:
 
 
 def get_specialist_system_prompt(lang: str, is_guest: bool = False, is_sip: bool = False) -> str:
-    if lang == "English":
-        lang_instruction = "Language: You MUST respond and speak ENTIRELY in English. Do NOT use any Hindi, Hinglish, or Devanagari words under any circumstances."
-        intro = "Hi, I'm Aarogyam's clinic and appointment specialist. I can help you find healthcare facilities and understand your appointment options."
-        examples = (
-            "Examples:\n"
-            "- User: 'I need a clinic near me.' -> Reply: 'I can help you find a suitable clinic. What location should I search around?'\n"
-            "- User: 'How do I book an appointment?' -> Reply: 'I can guide you with appointment booking options. Which facility are you looking to book?'"
-        )
-        escalation_consent_example = (
-            "'Your symptoms might be serious / I cannot diagnose medical conditions. I can create a human healthcare support request for you. "
-            "Would you like me to proceed?'"
-        )
-        lookup_unclear_prompt = "'I heard Ponda, Goa. Is that what you meant?'"
-        no_location_prompt = "'Which city, area, or district should I search?'"
-        failure_prompt = "'I\\'m unable to access the healthcare facility data right now. Please try again shortly.'"
-    elif lang == "Hindi":
-        lang_instruction = "Language: You MUST respond and speak ENTIRELY in Hindi using Devanagari script. Do NOT use English or Hinglish words."
-        intro = "नमस्ते, मैं आरोग्यम की क्लिनिक और अपॉइंटमेंट विशेषज्ञ हूँ। मैं स्वास्थ्य केंद्रों को खोजने और आपके अपॉइंटमेंट के विकल्पों को समझने में आपकी मदद कर सकती हूँ।"
-        examples = (
-            "Examples:\n"
-            "- User: 'मुझे अपने पास कोई क्लिनिक ढूंढना है।' -> Reply: 'मैं उपयुक्त क्लिनिक खोजने में मदद कर सकती हूँ। आप किस स्थान के पास खोजना चाहते हैं?'\n"
-            "- User: 'अपॉइंटमेंट कैसे बुक करूँ?' -> Reply: 'मैं अपॉइंटमेंट बुक करने में आपका मार्गदर्शन कर सकती हूँ। आप किस केंद्र के लिए बुकिंग करना चाहते हैं?'"
-        )
-        escalation_consent_example = (
-            "'आपके लक्षण गंभीर हो सकते हैं / मैं चिकित्सा स्थिति का निदान नहीं कर सकती। मैं आपके लिए मानव स्वास्थ्य सहायता अनुरोध बना सकती हूँ। "
-            "क्या आप चाहते हैं कि मैं आगे बढ़ूँ?'"
-        )
-        lookup_unclear_prompt = "'मैंने पोंडा, गोवा सुना। क्या आपका यही मतलब था?'"
-        no_location_prompt = "'आप किस शहर, क्षेत्र या जिले में खोजना चाहते हैं?'"
-        failure_prompt = "'मैं इस समय स्वास्थ्य केंद्र की जानकारी नहीं देख पा रही हूँ। कृपया कुछ समय बाद फिर से प्रयास करें।'"
-    else:  # Hinglish
-        lang_instruction = "Language: You MUST respond and speak in Hinglish (a natural mix of Hindi and English written in Latin script)."
-        intro = "Hi, main Aarogyam ki clinic aur appointment specialist hoon. Main healthcare facilities dhoondhne aur aapke appointment options ko samajhne mein aapki help kar sakti hoon."
-        examples = (
-            "Examples:\n"
-            "- User: 'Mujhe clinic dhoondhna hai near me.' -> Reply: 'Main clinic dhoondhne mein aapki help kar sakti hoon. Aap kis location ke paas search karna chahte hain?'\n"
-            "- User: 'Appointment kaise book karein?' -> Reply: 'Main appointment book karne mein aapko guide kar sakti hoon. Aap kis facility ke liye booking karna chahte hain?'"
-        )
-        escalation_consent_example = (
-            "'Aapke symptoms serious ho sakte hain / Main medical condition diagnose nahi kar sakta. Main aapke liye ek human healthcare support request create kar sakta hoon. "
-            "Kya aap chahte hain ki main proceed karoon?'"
-        )
-        lookup_unclear_prompt = "'Mujhe Ponda, Goa sunai diya. Kya aapka wahi matlab tha?'"
-        no_location_prompt = "'Aap kis city, area, ya district mein search karna chahte hain?'"
-        failure_prompt = "'Main abhi healthcare facilities ki details nahi dekh paa rahi hoon. Please thodi der baad try karein.'"
+    config = SPECIALIST_LOCALIZATION.get(lang, SPECIALIST_LOCALIZATION["Hinglish"])
+    intro = config["intro"]
+    lang_instruction = config["lang_instruction"]
+    examples = f"Examples:\n{config['examples']}"
+    escalation_consent_example = config["escalation_consent_example"]
+    lookup_unclear_prompt = config["lookup_unclear_prompt"]
+    no_location_prompt = config["no_location_prompt"]
+    failure_prompt = config["failure_prompt"]
 
     if is_guest:
         memory_instruction = ""
@@ -230,6 +476,8 @@ def get_specialist_system_prompt(lang: str, is_guest: bool = False, is_sip: bool
 
     prompt = (
         f"You are Aarogyam's Clinic & Appointment Specialist. Your responsibility is to help users find and understand healthcare facilities and provide appointment-related guidance.\n"
+        f"You MUST support dynamic language switching. Respond in the language the user is speaking to you. If the user explicitly asks to switch language, switch and respond in that language from now on.\n"
+        f"If the user speaks code-mixed language (e.g. Hinglish or Marathi-English mix), respond in a similar natural code-mixed style. Do not force them back to English.\n"
         f"Scope: You handle locating hospitals and clinics, explaining facility information, and guiding users through appointment-related options. You have a narrower responsibility than the main Aarogyam agent.\n"
         f"You MUST NOT diagnose medical conditions, prescribe medication, replace a doctor, invent facility information, invent appointment availability, or provide unsupported medical claims.\n"
         f"{lang_instruction}\n"
@@ -266,64 +514,117 @@ def update_specialist_prompt(specialist, lang: str) -> None:
                 item.content = new_prompt
 
 
+def detect_explicit_language_switch(text: str) -> str | None:
+    t = text.lower().strip()
+    switch_indicators = [
+        "switch to", "speak", "talk", "baat kar", "bol", "madhe", "me bol",
+        "translate to", "change language", "language to"
+    ]
+    
+    # We map language names to their standard representation
+    lang_keywords = {
+        "hindi": ["hindi", "हिन्दी", "हैंडी"],
+        "marathi": ["marathi", "मराठी"],
+        "tamil": ["tamil", "தமிழ்", "तमিল"],
+        "telugu": ["telugu", "తెలుగు", "तेलुगु"],
+        "kannada": ["kannada", "ಕನ್ನಡ", "कन्नड़"],
+        "gujarati": ["gujarati", "ગુજરાતી", "गुजराती"],
+        "punjabi": ["punjabi", "ਪੰਜਾਬੀ", "पंजाबी"],
+        "bengali": ["bengali", "bangla", "বাংলা", "बंगाली"],
+        "malayalam": ["malayalam", "മലയാളം", "मलयालम"],
+        "spanish": ["spanish", "español", "स्पैनिश"],
+        "french": ["french", "français", "फ्रेंच"],
+        "german": ["german", "deutsch", "जर्मन"],
+        "italian": ["italian", "italiano", "इতালਵੀ"],
+        "portuguese": ["portuguese", "português", "पुर्तगाली"],
+        "japanese": ["japanese", "日本語", "जापानी"],
+        "english": ["english", "अंग्रेजी"],
+    }
+    
+    for lang, keywords in lang_keywords.items():
+        for kw in keywords:
+            if kw in t:
+                if lang == "english" and "hinglish" in t:
+                    return "Hinglish"
+                return lang.capitalize()
+                
+    return None
 
-def detect_language(text: str) -> str:
+
+def detect_language(text: str, current_lang: str = "Hinglish") -> str:
     if not text:
-        return "Hinglish"
+        return current_lang
 
-    text = text.lower().strip()
+    # Check for explicit switch
+    explicit_lang = detect_explicit_language_switch(text)
+    if explicit_lang:
+        return explicit_lang
 
-    # Check for Devanagari script (Unicode range: 0900 to 097F)
-    has_devanagari = any(0x0900 <= ord(char) <= 0x097F for char in text)
-    if has_devanagari:
+    t = text.lower().strip()
+
+    # Unicode script checks for Indian languages
+    if any(0x0B80 <= ord(c) <= 0x0BFF for c in text):
+        return "Tamil"
+    if any(0x0C00 <= ord(c) <= 0x0C7F for c in text):
+        return "Telugu"
+    if any(0x0C80 <= ord(c) <= 0x0CFF for c in text):
+        return "Kannada"
+    if any(0x0D00 <= ord(c) <= 0x0D7F for c in text):
+        return "Malayalam"
+    if any(0x0980 <= ord(c) <= 0x09FF for c in text):
+        return "Bengali"
+    if any(0x0A80 <= ord(c) <= 0x0AFF for c in text):
+        return "Gujarati"
+    if any(0x0A00 <= ord(c) <= 0x0A7F for c in text):
+        return "Punjabi"
+    if any(0x3040 <= ord(c) <= 0x30FF or 0x4E00 <= ord(c) <= 0x9FFF for c in text):
+        return "Japanese"
+
+    # Devanagari script (Hindi or Marathi)
+    if any(0x0900 <= ord(c) <= 0x097F for c in text):
+        marathi_markers = ["आहे", "आहेत", "नाही", "काय", "मला", "तुम्ही", "आपल्या", "करतो", "केला", "पण", "झाला", "होते"]
+        if any(marker in t for marker in marathi_markers):
+            return "Marathi"
         return "Hindi"
 
-    # Common Hindi/Hinglish vocabulary mapping
-    hindi_hinglish_words = {
-        "hai",
-        "hain",
-        "hoon",
-        "aap",
-        "tum",
-        "mera",
-        "meri",
-        "mujhe",
-        "kya",
-        "haan",
-        "na",
-        "nahi",
-        "nhi",
-        "ji",
-        "karo",
-        "kaise",
-        "thik",
-        "theek",
-        "se",
-        "ko",
-        "par",
-        "ek",
-        "aur",
-        "ya",
-        "bhi",
-        "yeh",
-        "woh",
-        "sath",
-        "swasthya",
-        "dard",
-        "bukhar",
-        "sir",
-        "sar",
-        "pet",
-        "bimari",
-        "doctor",
-        "dawa",
-        "namaste",
-        "namaskar",
-        "pranam",
-    }
+    # Latin script vocabulary matches
+    spanish_words = {"hola", "gracias", "buenos", "dias", "tarde", "noche", "por", "favor", "salud", "medico", "dolor", "cabeza"}
+    french_words = {"bonjour", "merci", "sante", "medecin", "mal", "tete", "oui", "s'il", "vous", "plait"}
+    german_words = {"hallo", "danke", "gesundheit", "arzt", "schmerz", "kopf", "ja", "bitte"}
+    italian_words = {"ciao", "grazie", "salute", "medico", "dolore", "testa", "si", "per", "favore"}
+    portuguese_words = {"ola", "obrigado", "obrigada", "saude", "medico", "dor", "cabeca", "sim", "por"}
+    japanese_romaji = {"konnichiwa", "arigatou", "isha", "itai", "atama", "hai", "onegaishimasu"}
 
-    words = text.split()
+    words = set(t.split())
+    if words & spanish_words:
+        return "Spanish"
+    if words & french_words:
+        return "French"
+    if words & german_words:
+        return "German"
+    if words & italian_words:
+        return "Italian"
+    if words & portuguese_words:
+        return "Portuguese"
+    if words & japanese_romaji:
+        return "Japanese"
+
+    # Common Hindi/Hinglish vocabulary
+    hindi_hinglish_words = {
+        "hai", "hain", "hoon", "aap", "tum", "mera", "meri", "mujhe", "kya", "haan",
+        "na", "nahi", "nhi", "ji", "karo", "kaise", "thik", "theek", "se", "ko",
+        "par", "ek", "aur", "ya", "bhi", "yeh", "woh", "sath", "swasthya", "dard",
+        "bukhar", "sir", "sar", "pet", "bimari", "doctor", "dawa", "namaste",
+        "namaskar", "pranam"
+    }
     hindi_word_count = sum(1 for w in words if w in hindi_hinglish_words)
+
+    # Marathi in Latin script
+    marathi_latin_words = {"aahe", "aahet", "nahi", "nahiye", "kay", "mala", "tula", "tumhi", "karto", "kela", "pan", "jhala"}
+    marathi_word_count = sum(1 for w in words if w in marathi_latin_words)
+
+    if marathi_word_count > 0 and marathi_word_count >= hindi_word_count:
+        return "Marathi"
 
     if hindi_word_count > 0:
         non_hindi_words = sum(1 for w in words if w not in hindi_hinglish_words)
@@ -348,6 +649,62 @@ SILENCE_PROMPTS = {
         "prompt1": "Main yahin hoon. Jab aap ready hon, apna question pooch sakte hain.",
         "goodbye": "Lagta hai filhaal koi aur question nahi hai. Jab bhi zarurat ho, main yahin hoon. Apna khayal rakhiye.",
     },
+    "Marathi": {
+        "prompt1": "मी इथेच आहे. जेव्हा तुम्ही तयार असाल, तेव्हा तुमचा प्रश्न विचारू शकता.",
+        "goodbye": "सध्या आणखी काही प्रश्न दिसत नाहीत. तुम्हाला गरज असेल तेव्हा मी इथेच आहे. स्वतःची काळजी घ्या.",
+    },
+    "Gujarati": {
+        "prompt1": "હું અહીં જ છું. જ્યારે તમે તૈયાર હોવ, ત્યારે તમે તમારો પ્રશ્ન પૂછી શકો છો.",
+        "goodbye": "લાગે છે કે અત્યારે કોઈ પ્રશ્નો નથી. જ્યારે પણ જરૂર હોય, હું અહીં જ છું. ਆਪਣა ਖਿਆલ ਰੱਖો.",
+    },
+    "Tamil": {
+        "prompt1": "நான் இங்கேயே இருக்கிறேன். நீங்கள் தயாராக இருக்கும்போது உங்கள் கேள்வியைக் கேட்கலாம்.",
+        "goodbye": "தற்போது வேறு கேள்விகள் இல்லை என்று நினைக்கிறேன். உங்களுக்குத் தேவைப்படும்போது நான் இங்கேயே இருக்கிறேன். உடலைக் கவனித்துக் கொள்ளுங்கள்.",
+    },
+    "Telugu": {
+        "prompt1": "నేను ఇక్కడే ఉన్నాను. మీరు సిద్ధంగా ఉన్నప్పుడు మీ ప్రశ్న అడగవచ్చు.",
+        "goodbye": "ప్రస్తుతానికి ఇతర ప్రశ్నలు ఏవీ లేవనిపిస్తోంది. మీకు అవసరమైనప్పుడు నేను ఇక్కడే ఉంటాను. జాగ్రత్తగా ఉండండి.",
+    },
+    "Kannada": {
+        "prompt1": "ನಾನು ಇಲ್ಲೇ ಇದ್ದೇನೆ. ನೀವು ಸಿದ್ಧರಾದಾಗ ನಿಮ್ಮ ಪ್ರಶ್ನೆಯನ್ನು ಕೇಳಬಹುದು.",
+        "goodbye": "আপাতত আর কোনো প্রশ্ন নেই মনে হচ্ছে। আপনার প্রয়োজন হলে আমি এখানেই আছি। নিজের যত্ন নিন.",
+    },
+    "Bengali": {
+        "prompt1": "আমি এখানেই আছি। আপনি যখন প্রস্তুত হবেন, আপনার প্রশ্ন জিজ্ঞাসা করতে পারেন।",
+        "goodbye": "আপাতত আর কোনো প্রশ্ন নেই মনে হচ্ছে। আপনার প্রয়োজন হলে আমি এখানেই আছি। নিজের যত্ন নেবেন।",
+    },
+    "Malayalam": {
+        "prompt1": "ഞാൻ ഇവിടെത്തന്നെയുണ്ട്. നിങ്ങൾ തയ്യാറാകുമ്പോൾ ചോദ്യം ചോദിക്കാം.",
+        "goodbye": "ഇപ്പോഴത്തേക്ക് മറ്റ് ചോദ്യങ്ങളൊന്നുമില്ലെന്ന് തോന്നുന്നു. നിങ്ങൾക്ക് ആവശ്യമുള്ളപ്പോഴെല്ലാം ഞാൻ ഇവിടെയുണ്ടാകും. സൂക്ഷിക്കുക.",
+    },
+    "Punjabi": {
+        "prompt1": "ਮੈਂ ਇੱਥੇ ਹੀ ਹਾਂ। ਜਦੋਂ ਵੀ ਤੁਸੀਂ ਤਿਆਰ ਹੋਵੋ, ਆਪਣਾ ਸਵਾਲ ਪੁੱਛ ਸਕਦੇ ਹੋ।",
+        "goodbye": "ਲੱਗਦਾ ਹੈ ਅਜੇ ਕੋਈ ਹੋਰ ਸਵਾਲ ਨਹੀਂ ਹੈ। ਜਦੋਂ ਵੀ ਲੋੜ ਹੋਵੇ, ਮੈਂ ਇੱਥе ਹੀ ਹਾਂ। ਆਪਣਾ ਖਿਆਲ ਰੱਖਣਾ।",
+    },
+    "Spanish": {
+        "prompt1": "Sigo aquí. Cuando esté listo, puede hacer su pregunta.",
+        "goodbye": "Parece que no hay más preguntas por ahora. Estarei aquí cuando me necesite. Cuídese.",
+    },
+    "French": {
+        "prompt1": "Je suis toujours là. Quand vous êtes prêt, vous pouvez poser votre question.",
+        "goodbye": "Il semble qu'il n'y ait plus de questions pour le moment. Je suis là quand vous avez besoin de moi. Prenez soin de vous.",
+    },
+    "German": {
+        "prompt1": "Ich bin immer noch hier. Wenn Sie bereit sind, können Sie Ihre Frage stellen.",
+        "goodbye": "Es scheint vorerst keine Fragen mehr zu geben. Ich bin da, wenn Sie mich brauchen. Passen Sie auf sich auf.",
+    },
+    "Italian": {
+        "prompt1": "Sono ancora qui. Quando sei pronto, puoi fare la tua domanda.",
+        "goodbye": "Sembra che non ci siano altre domande per ora. Sono qui quando hai bisogno di me. Abbi cura di te.",
+    },
+    "Portuguese": {
+        "prompt1": "Ainda estou aqui. Quando estiver pronto, pode fazer sua pergunta.",
+        "goodbye": "Parece que não há mais perguntas por enquanto. Estarei aqui quando precisar. Cuide-se.",
+    },
+    "Japanese": {
+        "prompt1": "私はここにいます。ご準備ができたら、質問してください。",
+        "goodbye": "今のところ質問は他にないようです。必要な時はいつでもここにいます。お体に気をつけて。"
+    }
 }
 
 GREETINGS = [
@@ -1237,13 +1594,23 @@ async def my_agent(ctx: JobContext):
             text = ev.transcript
             last_user_text = text
             # Dynamically update session language if user explicitly switches language
-            current_session_lang = detect_language(text)
+            current_session_lang = detect_language(text, current_session_lang)
             
             active_agent = session.current_agent
             active_agent.current_lang = current_session_lang
             logger.info(
                 f"User speech committed: '{text}'. Detected language: {current_session_lang}"
             )
+
+            # Update TTS voice dynamically if supported
+            voice_id = MURF_VOICE_MAPPING.get(current_session_lang)
+            if voice_id:
+                try:
+                    session.tts.update_options(voice=voice_id)
+                    logger.info(f"Updated TTS voice to: {voice_id} for language: {current_session_lang}")
+                except Exception as e:
+                    logger.warning(f"Failed to update TTS voice: {e}")
+
             # Update instructions on the active agent
             if isinstance(active_agent, Assistant):
                 update_assistant_prompt(active_agent, current_session_lang)

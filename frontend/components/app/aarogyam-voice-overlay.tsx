@@ -131,6 +131,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
 
   const agent = useAgent();
   const agentState = agent.state;
+  const agentRole = agent?.attributes?.agent_role || 'main_agent';
   const { messages } = useSessionMessages(session);
   const { language } = useLanguage();
   const { user } = useAuth();
@@ -153,6 +154,7 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
   const isConnecting = session.connectionState === 'connecting';
   const isConnected = session.isConnected;
   const connectionFailed = session.connectionState === 'disconnected' && connectError;
+  const showConnecting = hasStarted && !hasConnectedOnce && !isCallEnded && !connectError && micState !== 'denied';
 
   // Embedded Session Info timer states
   const [sessionDuration, setSessionDuration] = useState(0);
@@ -194,6 +196,43 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
   };
 
   const tVoice = useMemo(() => getTranslation(language), [language]);
+
+  // Determine the avatar image src dynamically based on the state
+  const avatarSrc = useMemo(() => {
+    if (isCallEnded) {
+      return '/avatar/doctor-completed.png';
+    }
+    const isThinking = agentState === 'thinking';
+    const lastTwoMessages = messages.slice(-2);
+    const hasToolContext = lastTwoMessages.some(m => {
+      const text = m.message?.toLowerCase() || '';
+      return text.includes('escalat') || text.includes('support') || text.includes('save') || text.includes('clinic') || text.includes('hospital') || text.includes('appointment');
+    });
+
+    const isCheckingInfo = 
+      isConnecting || 
+      showConnecting || 
+      (isThinking && (
+        agentRole === 'clinic_specialist' ||
+        agentRole === 'clinic_specialist_connecting' ||
+        agentRole === 'main_agent_connecting' ||
+        hasToolContext
+      ));
+
+    if (isCheckingInfo) {
+      return '/avatar/doctor-checking.png';
+    }
+    if (isThinking) {
+      return '/avatar/doctor-thinking.png';
+    }
+    if (agentState === 'speaking') {
+      return '/avatar/doctor-speaking.png';
+    }
+    if (agentState === 'listening' || isUserSpeaking) {
+      return '/avatar/doctor-listening.png';
+    }
+    return '/avatar/doctor-ready.png';
+  }, [agentState, agentRole, isUserSpeaking, isCallEnded, isConnecting, showConnecting, messages]);
 
   // Get the single latest message for real-time subtitle translation
   const latestMessage = messages.length > 0 ? messages[messages.length - 1] : null;
@@ -378,7 +417,6 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
     let badgeColor = 'bg-slate-800/40 text-slate-400 border-slate-700/50';
     let statusText = 'Offline';
     let pulseColor = 'bg-slate-500';
-    const agentRole = agent?.attributes?.agent_role || 'main_agent';
 
     if (showConnecting || isConnecting) {
       badgeColor = 'bg-blue-950/40 text-blue-400 border-blue-900/30';
@@ -535,10 +573,12 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
                       agentState === 'speaking' ? 'border-teal-400/20' : 'border-white/10'
                     }`} />
                     
-                    {/* Core Sphere */}
-                    <div className={`w-36 h-36 rounded-full blur-xs transition-all duration-700 flex items-center justify-center mix-blend-screen animate-pulse-slow ${orbClass}`}>
-                      <HeartPulse className="h-12 w-12 text-white" />
-                    </div>
+                    {/* Doctor Avatar */}
+                    <img 
+                      src={avatarSrc} 
+                      className="w-48 h-48 object-contain transition-all duration-500 hover:scale-105 z-10" 
+                      alt="Aarogyam Voice Assistant" 
+                    />
                   </div>
 
                   {/* Active prompt status labels */}
@@ -841,9 +881,12 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
           <div className="relative flex items-center justify-center h-64 w-64 mb-8">
             <div className="absolute w-56 h-56 rounded-full border border-emerald-500/10 animate-[spin_20s_linear_infinite] animate-pulse-ring" />
             <div className="absolute w-48 h-48 rounded-full border border-emerald-500/5 animate-[spin_25s_linear_infinite_reverse] animate-pulse-ring-fast" />
-            <div className="w-36 h-36 rounded-full bg-emerald-950/20 border border-emerald-500/30 flex items-center justify-center shadow-[0_0_45px_rgba(16,185,129,0.15)] animate-pulse-slow">
-              <HeartPulse className="h-14 w-14 text-emerald-400 opacity-80" />
-            </div>
+            {/* Doctor Avatar */}
+            <img 
+              src="/avatar/doctor-ready.png" 
+              className="w-48 h-48 object-contain transition-all duration-500 z-10" 
+              alt="Aarogyam Voice Assistant Ready" 
+            />
           </div>
 
           <h2 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-400 to-cyan-300 bg-clip-text text-transparent">
@@ -865,7 +908,6 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
   }
 
   // 2. STATE: CONNECTING (Loading/connecting state)
-  const showConnecting = hasStarted && !hasConnectedOnce && !isCallEnded && !connectError && micState !== 'denied';
   if (!isEmbedded && showConnecting) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/98 text-white backdrop-blur-xl animate-in fade-in duration-300">
@@ -893,9 +935,12 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
           <div className="relative flex items-center justify-center h-64 w-64 mb-8">
             <div className="absolute w-56 h-56 rounded-full border border-cyan-500/20 animate-spin" style={{ animationDuration: '3s' }} />
             <div className="absolute w-48 h-48 rounded-full border border-cyan-500/10 animate-[spin_6s_linear_infinite_reverse]" />
-            <div className="w-36 h-36 rounded-full bg-cyan-950/30 border border-cyan-500/40 flex items-center justify-center shadow-[0_0_50px_rgba(6,182,212,0.3)] animate-pulse">
-              <Loader2 className="h-12 w-12 text-cyan-400 animate-spin" />
-            </div>
+            {/* Doctor Avatar */}
+            <img 
+              src="/avatar/doctor-checking.png" 
+              className="w-48 h-48 object-contain transition-all duration-500 z-10" 
+              alt="Aarogyam Voice Assistant Connecting" 
+            />
           </div>
 
           <h2 className="text-2xl font-bold tracking-tight text-cyan-100">
@@ -1050,9 +1095,12 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
           {/* Calm ending visual orb */}
           <div className="relative flex items-center justify-center h-64 w-64 mb-8">
             <div className="absolute w-56 h-56 rounded-full border border-white/5 animate-pulse-slow" />
-            <div className="w-36 h-36 rounded-full bg-slate-800/40 border border-white/10 flex items-center justify-center shadow-[0_0_35px_rgba(255,255,255,0.05)]">
-              <MicOff className="h-12 w-12 text-slate-500" />
-            </div>
+            {/* Doctor Avatar */}
+            <img 
+              src="/avatar/doctor-completed.png" 
+              className="w-48 h-48 object-contain transition-all duration-500 z-10" 
+              alt="Aarogyam Voice Assistant Completed" 
+            />
           </div>
 
           <h2 className="text-3xl font-extrabold tracking-tight text-slate-200">
@@ -1168,46 +1216,31 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
                   <button
                     onClick={!hasStarted || isCallEnded ? startSession : toggleMute}
                     disabled={isConnecting}
-                    className={`w-28 h-28 rounded-full flex items-center justify-center text-white transition-all duration-500 shadow-md ${
-                      !hasStarted || isCallEnded ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20 hover:scale-105 cursor-pointer' :
-                      isConnecting ? 'bg-cyan-500 shadow-cyan-500/20 animate-pulse' :
-                      agentState === 'speaking' ? 'bg-blue-600 shadow-[0_0_30px_rgba(37,99,235,0.4)] animate-orb-glow cursor-pointer' :
-                      agentState === 'thinking' ? 'bg-amber-500 shadow-amber-500/20 animate-pulse cursor-pointer' :
-                      isMuted ? 'bg-red-500 shadow-red-500/20 cursor-pointer' :
-                      isUserSpeaking ? 'bg-emerald-500 shadow-[0_0_35px_rgba(16,185,129,0.5)] scale-105 cursor-pointer' :
-                      'bg-[#10B981] shadow-emerald-500/20 cursor-pointer'
-                    }`}
+                    className="w-32 h-32 hover:scale-105 transition-transform duration-300 cursor-pointer flex items-center justify-center z-10 focus:outline-hidden"
                   >
-                    {!hasStarted || isCallEnded ? (
-                      <Mic className="w-10 h-10 animate-pulse" />
-                    ) : isConnecting ? (
-                      <Loader2 className="w-10 h-10 animate-spin" />
-                    ) : agentState === 'speaking' ? (
-                      <Volume2 className="w-10 h-10 animate-pulse" />
-                    ) : isMuted ? (
-                      <MicOff className="w-10 h-10" />
-                    ) : (
-                      <div className="flex items-center justify-center gap-1">
-                        {isUserSpeaking || agentState === 'speaking' ? (
-                          <div className="flex items-end gap-1 h-8">
-                            {Array.from({ length: 5 }).map((_, i) => (
-                              <div
-                                key={i}
-                                className="w-1 bg-white rounded-full animate-waveform"
-                                style={{
-                                  height: '100%',
-                                  animationDelay: `${i * 0.15}s`,
-                                }}
-                              />
-                            ))}
-                          </div>
-                        ) : (
-                          <Mic className="w-10 h-10 opacity-95" />
-                        )}
-                      </div>
-                    )}
+                    <img 
+                      src={avatarSrc} 
+                      className="w-32 h-32 object-contain" 
+                      alt="Aarogyam Voice Assistant" 
+                    />
                   </button>
                 </div>
+
+                {/* Embedded Mode Waveform */}
+                {(agentState === 'speaking' || isUserSpeaking) && (
+                  <div className="flex items-end justify-center gap-1.5 h-6 mt-2 animate-in fade-in duration-300">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="w-1 bg-[#10B981] rounded-full animate-waveform"
+                        style={{
+                          height: '100%',
+                          animationDelay: `${i * 0.15}s`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
 
                 {/* Subtitle / Interaction text */}
                 <div className="text-center space-y-2 max-w-md px-4 shrink-0">
@@ -1562,14 +1595,12 @@ function InnerVoiceOverlayContent({ onClose, isEmbedded = false, onNavigateTab, 
                 isUserSpeaking ? 'border-emerald-400/30 animate-pulse-ring-fast' : 'border-white/10 animate-pulse-ring'
               }`} />
               
-              {/* Glowing core sphere */}
-              <div className={`w-44 h-44 rounded-full blur-xs transition-all duration-700 mix-blend-screen flex items-center justify-center animate-orb-glow ${orbClass}`}>
-                {agentState === 'speaking' ? (
-                  <Volume2 className="h-10 w-10 text-white opacity-90 animate-pulse" />
-                ) : (
-                  <Mic className={`h-10 w-10 text-white transition-opacity ${isUserSpeaking ? 'opacity-90' : 'opacity-50'}`} />
-                )}
-              </div>
+              {/* Doctor Avatar */}
+              <img 
+                src={avatarSrc} 
+                className="w-56 h-56 object-contain transition-all duration-500 hover:scale-105 z-10" 
+                alt="Aarogyam Voice Assistant" 
+              />
             </div>
 
             {/* Subtitle Real-time Transcript */}

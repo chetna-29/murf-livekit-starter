@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Request
 
 try:
-    from controllers.conversation_controller import ConversationController, ConversationRequest
+    from controllers.conversation_controller import (
+        ConversationController,
+        ConversationRequest,
+    )
     from middleware.auth import AuthMiddleware
 except ImportError:  # pragma: no cover - package import fallback
-    from ..controllers.conversation_controller import ConversationController, ConversationRequest
+    from ..controllers.conversation_controller import (
+        ConversationController,
+        ConversationRequest,
+    )
     from ..middleware.auth import AuthMiddleware
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])

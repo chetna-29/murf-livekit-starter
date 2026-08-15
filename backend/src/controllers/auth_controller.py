@@ -39,7 +39,9 @@ class AuthController:
                 preferred_language=payload.preferredLanguage or "English",
             )
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
 
         token = create_access_token(user.id)
         return AuthResponse(token=token, user=user.to_dict())
@@ -47,9 +49,13 @@ class AuthController:
     @staticmethod
     def login(payload: LoginRequest) -> AuthResponse:
         try:
-            user = UserService.authenticate(email=str(payload.email), password=payload.password)
+            user = UserService.authenticate(
+                email=str(payload.email), password=payload.password
+            )
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+            ) from exc
 
         token = create_access_token(user.id)
         return AuthResponse(token=token, user=user.to_dict())

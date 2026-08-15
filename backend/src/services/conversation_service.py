@@ -13,7 +13,15 @@ class ConversationService:
     _conversations: dict[str, list[Conversation]] = {}
 
     @classmethod
-    def add_conversation(cls, *, user_id: str, question: str, answer: str, language: str, session_id: str | None = None) -> Conversation:
+    def add_conversation(
+        cls,
+        *,
+        user_id: str,
+        question: str,
+        answer: str,
+        language: str,
+        session_id: str | None = None,
+    ) -> Conversation:
         conversation = Conversation(
             user_id=user_id,
             question=question,

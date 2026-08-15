@@ -16,7 +16,14 @@ class UserService:
     _emails: dict[str, str] = {}
 
     @classmethod
-    def create_user(cls, *, name: str, email: str, password: str, preferred_language: str = "English") -> User:
+    def create_user(
+        cls,
+        *,
+        name: str,
+        email: str,
+        password: str,
+        preferred_language: str = "English",
+    ) -> User:
         if email.lower() in cls._emails:
             raise ValueError("Email already registered")
 
@@ -51,7 +58,14 @@ class UserService:
         return user
 
     @classmethod
-    def update_profile(cls, user_id: str, *, name: str | None = None, preferred_language: str | None = None, avatar: str | None = None) -> User:
+    def update_profile(
+        cls,
+        user_id: str,
+        *,
+        name: str | None = None,
+        preferred_language: str | None = None,
+        avatar: str | None = None,
+    ) -> User:
         user = cls.get_user_by_id(user_id)
         if not user:
             raise ValueError("User not found")

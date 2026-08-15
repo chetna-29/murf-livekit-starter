@@ -21,7 +21,9 @@ class UserController:
         user_id = request.state.user_id
         user = UserService.get_user_by_id(user_id)
         if not user:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            )
         return user.to_dict()
 
     @staticmethod
@@ -35,5 +37,7 @@ class UserController:
                 avatar=payload.avatar,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from exc
         return user.to_dict()
